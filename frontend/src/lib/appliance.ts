@@ -1,4 +1,8 @@
 // CARE Clinic bridge adapter: transport changes; the reused UI stays React/Wails-shaped.
+export type ApplianceStatus = {
+  healthy: boolean; configured: boolean; phase: string; detail: string;
+  platform: string; backupDir: string; stateDir: string;
+};
 const token = location.hash.slice(1) || sessionStorage.getItem("care-desktop-token");
 if (token) {
   sessionStorage.setItem("care-desktop-token", token);

@@ -167,6 +167,11 @@ GitHub's ARM macOS runners do not support nested virtualization, so macOS CI
 checks packaging/signatures; the downloaded build still needs a local boot check.
 Prerelease publication follows acceptance testing rather than happening on every push.
 
+`npm --prefix frontend run test:ui` checks the reused setup/control screens against
+the appliance HTTP contract (install Playwright Chromium first). These focused
+tests replace the upstream Wails-only simulated-host suite, which does not test
+this adapter. They do not replace the real appliance smoke test.
+
 ```sh
 # Build-time tools: Python 3.12+, Go, Node; macOS also needs Xcode command-line tools.
 npm --prefix frontend ci --ignore-scripts

@@ -32,6 +32,11 @@ jobs:
           python-version: '3.13'
       - run: npm --prefix frontend ci --ignore-scripts
       - run: npm --prefix frontend run build
+      - name: Test reused UI against appliance adapter
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:ui
       - run: python scripts/build-onboarding.py
       - name: Archive complete offline interfaces
         run: tar -czf interfaces.tar.gz frontend/dist dist/onboarding

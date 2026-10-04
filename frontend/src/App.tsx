@@ -7,19 +7,19 @@ import { PanelScreen } from "@/screens/panel/panel-screen";
 import { EMPTY_RECOVERY } from "@/screens/setup/setup-model";
 import { EMPTY_SETUP_FORM } from "@/state/forms";
 import { useCare } from "@/state/care-store";
-import { appliance } from "@/lib/appliance";
+import { appliance, type ApplianceStatus } from "@/lib/appliance";
 import { useAppUpdate } from "@/hooks/use-app-update";
 
 // Reuse CARE Clinic's setup layout and administrator step; VM preparation replaces installation.
 export function App() {
   const care = useCare();
   const [form, setForm] = useState(EMPTY_SETUP_FORM);
-  const [state, setState] = useState({healthy:false, detail:"Preparing your offline clinic…", phase:"starting"});
+  const [state, setState] = useState<ApplianceStatus>({healthy:false, configured:false, detail:"Preparing your offline clinic…", phase:"starting", platform:"", backupDir:"", stateDir:""});
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const update = useAppUpdate(true, false);
   useEffect(() => { let live=true; const poll=async()=>{try{const s=await appliance("/status");if(live)setState(s)}catch(e){if(live)setError(String(e))}}; void poll();const timer=setInterval(poll,3000);return()=>{live=false;clearInterval(timer)}; },[]);
-  useEffect(()=>{ if ((state as any).configured && care.ready && care.flow!=="panel") care.openPanel(); },[state,care.ready,care.flow]);
+  useEffect(()=>{ if (state.configured && care.ready && care.flow!=="panel") care.openPanel(); },[state.configured,care.ready,care.flow,care.openPanel]);
   if (care.flow === "panel") return <PanelScreen />;
   const strong = form.adminPassword.length >= 12;
   const submit = async () => {

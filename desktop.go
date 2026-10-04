@@ -216,9 +216,15 @@ func desktop(state, bundle string) error {
 		return fmt.Errorf("desktop UI is missing; reinstall the complete CARE Anywhere app: %w", err)
 	}
 	webHandler := http.FileServer(http.Dir(web))
-	listBackups := func() []map[string]any {
+	listBackups := func() ([]map[string]any, error) {
 		items := []map[string]any{}
-		entries, _ := os.ReadDir(backupDir)
+		entries, err := os.ReadDir(backupDir)
+		if os.IsNotExist(err) {
+			return items, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 		for i := len(entries) - 1; i >= 0; i-- {
 			entry := entries[i]
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".age") {
@@ -226,11 +232,11 @@ func desktop(state, bundle string) error {
 			}
 			info, e := entry.Info()
 			if e != nil {
-				continue
+				return nil, e
 			}
 			items = append(items, map[string]any{"db_dump": entry.Name(), "files_archive": "", "label": strings.TrimSuffix(strings.TrimPrefix(entry.Name(), "care-"), ".age"), "manual": true, "encrypted": true, "size_bytes": info.Size()})
 		}
-		return items
+		return items, nil
 	}
 	quit := make(chan struct{}, 1)
 	mux := http.NewServeMux()
@@ -280,8 +286,13 @@ func desktop(state, bundle string) error {
 			return
 		}
 		if r.Method == "GET" && r.URL.Path == "/backups" {
+			items, err := listBackups()
+			if err != nil {
+				http.Error(w, "Cannot read backup folder: "+err.Error(), 500)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(listBackups())
+			json.NewEncoder(w).Encode(items)
 			return
 		}
 		if r.Method == "GET" && r.URL.Path == "/storage" {
