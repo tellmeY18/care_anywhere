@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -52,6 +54,38 @@ func TestBackupRoundTripAndRefuseOverwrite(t *testing.T) {
 	}
 	if _, e = os.Stat(filepath.Join(broken, "data.img")); !os.IsNotExist(e) {
 		t.Fatal("published corrupt data")
+	}
+}
+
+func TestBundleVerifiesAdditionalRuntime(t *testing.T) {
+	root := t.TempDir()
+	m := manifest{Version: "test", Arch: runtime.GOARCH, System: "/nix/store/test", Kernel: "kernel", Initrd: "initrd", Files: map[string]string{}}
+	for _, name := range []string{"kernel", "initrd", "system.img", "data.img", "firecracker"} {
+		b := []byte(name)
+		sum := sha256.Sum256(b)
+		m.Files[name] = hex.EncodeToString(sum[:])
+		if err := os.WriteFile(filepath.Join(root, name), b, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := saveJSON(filepath.Join(root, "manifest.json"), m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyBundle(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "firecracker"), []byte("tampered"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyBundle(root); err == nil {
+		t.Fatal("accepted modified runtime")
+	}
+	m.Files["../escape"] = "ignored"
+	if err := saveJSON(filepath.Join(root, "manifest.json"), m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyBundle(root); err == nil {
+		t.Fatal("accepted additional path traversal")
 	}
 }
 

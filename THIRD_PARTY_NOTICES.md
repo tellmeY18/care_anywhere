@@ -39,3 +39,17 @@ SOFTWARE.
 Other components retain their own licenses. Distributing appliance images or
 QEMU/Firecracker helpers requires their corresponding notices and source-offer
 obligations, independent of the launcher license.
+
+# CARE Clinic desktop frontend and CARE Onboarding
+
+`frontend/` is adapted from `ohcnetwork/care_clinic` (MIT), source snapshot
+`de9d492407c6004e7aae33d5f40c9d6459c65fea`. The React components, setup layout,
+administrator form, control panel, backup list, storage views, typography and
+styles are reused. The Wails bridge is adapted to the loopback VM control API;
+container-only and unavailable alpha operations are not exposed.
+
+CARE Onboarding is built without source modifications from
+`ohcnetwork/care_onboarding_fe` commit
+`d78c2f177d281f8b27370e8c9f04571a70fcba08` (MIT) and hosted locally in the package.
+Its source, data provenance, and license are at
+https://github.com/ohcnetwork/care_onboarding_fe/tree/d78c2f177d281f8b27370e8c9f04571a70fcba08.

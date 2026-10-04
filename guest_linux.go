@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -96,7 +97,16 @@ func guestMain() error {
 			return
 		}
 		defer mutation.Unlock()
-		if e := exec.Command("systemctl", "poweroff", "--no-block").Run(); e != nil {
+		// Firecracker exits on guest reboot; its minimal machine has no ACPI poweroff.
+		action := "poweroff"
+		if cmdline, e := os.ReadFile("/proc/cmdline"); e == nil {
+			for _, arg := range strings.Fields(string(cmdline)) {
+				if arg == "care.shutdown=reboot" {
+					action = "reboot"
+				}
+			}
+		}
+		if e := exec.Command("systemctl", action, "--no-block").Run(); e != nil {
 			http.Error(w, e.Error(), 500)
 			return
 		}

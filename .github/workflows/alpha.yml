@@ -1,0 +1,157 @@
+name: Build CARE Anywhere alpha
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/alpha]
+    paths-ignore: ['**/*.md']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+      - run: go vet ./... && go test -race ./...
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - run: npm --prefix frontend ci --ignore-scripts
+      - run: npm --prefix frontend run build
+      - run: python scripts/build-onboarding.py
+      - name: Archive complete offline interfaces
+        run: tar -czf interfaces.tar.gz frontend/dist dist/onboarding
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: offline-interfaces
+          path: interfaces.tar.gz
+          compression-level: 0
+          retention-days: 14
+
+  appliance:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            system: x86_64-linux
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Make room on disposable GitHub runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+        with:
+          extra_nix_config: |
+            max-jobs = 2
+            cores = 2
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a
+        with:
+          primary-key: nix-${{ matrix.system }}-${{ hashFiles('flake.lock', 'nix/**', '*.go', 'go.*') }}
+          restore-prefixes-first-match: nix-${{ matrix.system }}-
+          gc-max-store-size-linux: 6000000000
+      - name: Build offline appliance
+        id: bundle
+        env:
+          SYSTEM: ${{ matrix.system }}
+        run: |
+          bundle=$(nix build ".#packages.$SYSTEM.bundle" --no-link --print-out-paths)
+          echo "path=$bundle" >> "$GITHUB_OUTPUT"
+          mkdir -p dist
+          tar -czf dist/appliance.tar.gz -C "$bundle" manifest.json kernel initrd system.img data.img firecracker
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: appliance-${{ matrix.arch }}
+          path: dist/appliance.tar.gz
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: offline-interfaces
+      - run: tar -xzf interfaces.tar.gz
+      - name: Package complete Linux host
+        env:
+          BUNDLE: ${{ steps.bundle.outputs.path }}
+        run: python scripts/package.py linux --bundle "$BUNDLE"
+      - name: Real x86_64 KVM boot, setup, restart, backup and restore
+        if: matrix.arch == 'amd64'
+        run: |
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          python scripts/smoke.py --binary dist/releases/stage-linux-amd64/care-anywhere/care-anywhere --bundle dist/releases/stage-linux-amd64/care-anywhere/bundle --state dist/ci-smoke --restore --cleanup
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            dist/releases/*.tar.gz
+            dist/releases/*.sha256
+          compression-level: 0
+          retention-days: 14
+
+  macos:
+    needs: [checks, appliance]
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - run: go vet ./... && go test -race ./...
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: appliance-arm64
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: offline-interfaces
+      - name: Unpack appliance and interfaces
+        run: |
+          mkdir dist/bundle
+          tar -xzf dist/appliance.tar.gz -C dist/bundle
+          tar -xzf interfaces.tar.gz
+          rm dist/appliance.tar.gz
+      - name: Build and verify ad-hoc signed alpha DMG
+        run: python scripts/package.py macos --bundle dist/bundle
+      - name: Record macOS verification boundary
+        run: |
+          echo 'DMG checksums and app signature verified. GitHub ARM macOS runners cannot run nested Virtualization.framework guests. A local boot acceptance test is required before publishing.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: macos-arm64
+          path: |
+            dist/releases/*.dmg
+            dist/releases/*.sha256
+          compression-level: 0
+          retention-days: 14
