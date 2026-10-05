@@ -45,6 +45,10 @@ encrypted backup while stopped, open the backup folder, and show diagnostics.
 Backups are saved in `~/CARE Anywhere Backups`; keep both the `.age` archive and
 the `.key` recovery file, storing the key separately. Restore still uses the CLI.
 
+Shutdown is scheduled briefly after its control acknowledgement so the guest
+agent can return a response before systemd stops it. The launcher retains its
+data lock until the VM has exited.
+
 Clinic data lives outside the app in `~/Library/Application Support/care-anywhere`
 on macOS, `${XDG_CONFIG_HOME:-~/.config}/care-anywhere` on Linux, and
 `%APPDATA%\care-anywhere` on Windows. Removing the

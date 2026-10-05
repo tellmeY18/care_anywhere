@@ -138,6 +138,14 @@ jobs:
           releases/*.AppImage --appimage-extract
           cd ..
           python scripts/smoke.py --binary dist/squashfs-root/care-anywhere --bundle dist/squashfs-root/bundle --state dist/ci-smoke --restore --cleanup
+      - name: Collect Linux failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-${{ matrix.arch }}-diagnostics
+          path: |
+            dist/ci-smoke/*.log
+            dist/ci-smoke-restored/*.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: linux-${{ matrix.arch }}

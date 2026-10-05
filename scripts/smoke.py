@@ -17,8 +17,13 @@ def request(url, token=None, data=None):
     if token:
         headers["Authorization"] = "Bearer " + token
     req = urllib.request.Request(url, headers=headers, data=json.dumps(data).encode() if data is not None else None)
-    with urllib.request.urlopen(req, timeout=240) as r:
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=240) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        # Keep the host's failure reason in CI logs without printing credentials.
+        print(f"{req.method} {url}: HTTP {e.code}: {e.read().decode(errors='replace')}", flush=True)
+        raise
 
 
 def wait_control(state, name, process):

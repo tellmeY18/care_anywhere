@@ -151,7 +151,10 @@ func guestMain() error {
 				}
 			}
 		}
-		if e := exec.Command("systemctl", action, "--no-block").Run(); e != nil {
+		// Queue shutdown with systemd rather than stopping our own service before
+		// this HTTP response reaches the host. The host still waits for VM exit
+		// before releasing the clinic lock; this only acknowledges scheduling.
+		if e := exec.Command("systemd-run", "--unit=care-shutdown", "--on-active=2s", "--timer-property=AccuracySec=100ms", "systemctl", action, "--no-block").Run(); e != nil {
 			http.Error(w, e.Error(), 500)
 			return
 		}
