@@ -46,6 +46,18 @@ Closing the browser keeps CARE running. Use **Stop** or **Quit CARE Anywhere**.
 
 ## Verification and limits
 
+### Alpha-22 provenance
+
+- Linux x86_64 KVM boot/setup/restart/backup/restore, Linux ARM64 packaging, and
+  macOS packaging passed in [run 21](https://github.com/tellmeY18/care_anywhere/actions/runs/37350309132)
+  at `c39ec3f2ffa2e8ee01996c26edb9bf17311b6018`.
+- The installed Windows package passed boot/setup/restart/backup/restore and
+  clean shutdown under TCG in [run 22](https://github.com/tellmeY18/care_anywhere/actions/runs/37360309843)
+  at `e8c7742adfb30618f318529db4debc5e098dabed`, using run 21's appliance.
+- Between those commits only smoke-test output and CI text encoding changed.
+  These are the tested artifacts, republished without rebuilding. Run 21's Windows
+  test failed while printing its success message; run 22 verifies the corrected test.
+
 Publication requires Go/UI checks, every platform package, Linux x86_64 QEMU/KVM
 boot/setup/login/restart/encrypted-backup/restore acceptance, and the installed
 Windows package's equivalent real-guest test using explicit **TCG** software
