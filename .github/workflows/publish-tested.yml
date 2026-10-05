@@ -79,7 +79,7 @@ jobs:
           PY
       - name: Publish alpha-22
         run: |
-          gh release create alpha-22 assets/* \
-            --target e8c7742adfb30618f318529db4debc5e098dabed \
-            --title 'CARE Anywhere 0.1.0-alpha.2 — macOS, Linux & Windows' \
-            --notes-file .github/release-notes.md --prerelease
+          test "$(gh release view alpha-22 --json isDraft --jq .isDraft)" = true
+          gh release upload alpha-22 assets/*
+          gh release edit alpha-22 --draft=false --prerelease \
+            --notes-file .github/release-notes.md
