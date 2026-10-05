@@ -136,7 +136,12 @@ in {
       ${python}/bin/python manage.py collectstatic --noinput
     '';
   };
-  systemd.services.care-api = service "${python}/bin/gunicorn config.wsgi:application --bind 127.0.0.1:9000 --workers=2";
+  # Django/PDF imports can exceed Gunicorn's 30s default under explicit TCG.
+  # Keep a bounded timeout and memory-backed heartbeats instead of killing
+  # workers repeatedly before they can answer the first health request.
+  systemd.services.care-api = lib.recursiveUpdate
+    (service "${python}/bin/gunicorn config.wsgi:application --bind 127.0.0.1:9000 --workers=2 --timeout=300 --worker-tmp-dir=/run/care-api")
+    { serviceConfig.RuntimeDirectory = "care-api"; };
   systemd.services.care-buckets = {
     wantedBy = [ "multi-user.target" ];
     requires = [ "minio.service" "care-secrets.service" ];

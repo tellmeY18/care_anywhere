@@ -78,6 +78,10 @@ Existing databases use normal migrations; interruption during seed restore rolls
 back instead of leaving a partially imported schema. Setup creates the initial administrator. No patient data
 or shared installation secrets are baked into the release.
 
+Gunicorn uses a bounded 300-second worker timeout to accommodate slow emulated
+startup and memory-backed heartbeat files under `/run/care-api`. This timeout
+also applies to silent request workers; it is not a separate startup-only grace period.
+
 ## Run the local preview
 
 The tested build is in `dist/` (ignored by Git). From this repository:
