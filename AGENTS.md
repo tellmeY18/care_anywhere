@@ -8,7 +8,7 @@ runtime").
 ## What this is
 
 CARE Anywhere is an experimental **single-binary native launcher** that boots a
-prebuilt, offline, Linux microVM appliance containing the full
+prebuilt, local-first, Linux microVM appliance containing the full
 [CARE](https://github.com/ohcnetwork/care) EMR stack (Django API, Celery worker,
 Celery beat, PostgreSQL, Redis, MinIO, Caddy, prebuilt React frontend). The goal
 is "install CARE like a browser" — no Docker, no Nix, no Python, no Node, no Git
@@ -55,12 +55,19 @@ artifacts, bundles, or the `.state/` runtime directory.
    in this repo, stop — that's `care_clinic`'s job, not this one. The entire
    point of this project is proving a container-free, VM-based alternative.
 
-2. **Guest has no network interface.** All host↔guest traffic (control API,
-   proxied CARE HTTP) goes over **virtio sockets (vsock)**, not TCP/IP. This is
-   intentional: it keeps the appliance fully offline-capable and removes an
-   entire class of network configuration problems. Do not add a NIC/TAP/bridge
-   to "simplify" something — work within vsock, or raise it as a deliberate,
-   documented architecture change.
+2. **Local-first, not offline-only.** Clinic data, compute and storage stay on
+   this computer — that part is non-negotiable. The guest gets an
+   **outbound-only NAT network device by default on macOS** (see
+   `vm_darwin.go`, disable with `CARE_NO_NETWORK=1`) so features that
+   genuinely need live internet (e.g. SNOMED code validation via the
+   Snowstorm terminology server at `SNOWSTORM_DEPLOYMENT_URL`) work instead of
+   500ing. All host↔guest control/browser traffic still goes over **virtio
+   sockets (vsock)**, never through this NIC. The guest's own firewall blocks
+   all unsolicited inbound traffic; nothing is exposed to the LAN or internet.
+   Linux (Firecracker) does not have this NIC yet — tap+NAT there needs
+   privileged host setup that conflicts with the no-sudo installer promise;
+   treat that gap as a known, tracked asymmetry, not a decision to silently
+   work around.
 
 3. **Dependencies install at Nix build time, never at guest boot time.** The
    whole value proposition collapses if the guest runs `pip install` or

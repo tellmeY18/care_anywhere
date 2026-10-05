@@ -63,6 +63,13 @@ let
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") env)}
     exec ${pkgs.util-linux}/bin/runuser -u care -- ${python}/bin/python -c 'import json,sys,django; django.setup(); from django.contrib.auth import get_user_model; d=json.load(sys.stdin); U=get_user_model(); assert not U.objects.filter(is_superuser=True).exists(), "Administrator already exists"; U.objects.create_superuser(username=d["Username"],email="",password=d["Password"])'
   '';
+  adminReset = pkgs.writeShellScriptBin "care-admin-reset" ''
+    cd ${app}
+    set -a
+    source /var/lib/care/runtime.env
+    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") env)}
+    exec ${pkgs.util-linux}/bin/runuser -u care -- ${python}/bin/python -c 'import json,sys,django; django.setup(); from django.contrib.auth import get_user_model; d=json.load(sys.stdin); U=get_user_model(); u=U.objects.get(username=d["Username"],is_superuser=True); u.set_password(d["Password"]); u.save()'
+  '';
 in {
   system.stateVersion = "25.05";
   networking.hostName = "care-anywhere";
@@ -71,7 +78,13 @@ in {
     mem = 4096; vcpu = 2; storeOnDisk = true;
     volumes = [{ image = "data.img"; mountPoint = "/var/lib"; size = 8192; }];
   };
-  boot.kernelModules = [ "vmw_vsock_virtio_transport" ];
+  boot.kernelModules = [ "vmw_vsock_virtio_transport" "virtio_net" ];
+  # Local-first: the host attaches outbound-only NAT internet by default (see
+  # vm_darwin.go) so features that need it — e.g. SNOMED lookups via the
+  # Snowstorm terminology server — work. The guest DHCPs if a NIC appears and
+  # is otherwise inert (no NIC => no traffic). The firewall below blocks all
+  # unsolicited inbound traffic; nothing listens for the LAN or the internet.
+  networking.useDHCP = true;
   networking.firewall.enable = true;
   users.groups.care = {};
   users.users.care = { isSystemUser = true; group = "care"; };
@@ -86,7 +99,7 @@ in {
     rootCredentialsFile = "/var/lib/care/minio.env";
   };
   fonts = { fontconfig.enable = true; packages = [ pkgs.dejavu_fonts ]; };
-  environment.systemPackages = [ admin ];
+  environment.systemPackages = [ admin adminReset ];
   systemd.services.care-secrets = {
     requiredBy = [ "minio.service" "care-init.service" ]; before = [ "minio.service" "care-init.service" ];
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; StateDirectory = "care"; };

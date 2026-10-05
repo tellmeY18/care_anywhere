@@ -55,7 +55,27 @@ func bootVM(bundle, state string, m manifest) (machine, error) {
 		return nil, e
 	}
 	cfg.SetSocketDevicesVirtualMachineConfiguration([]vz.SocketDeviceConfiguration{socket})
-	// No NIC: clinic operation, control and browser traffic use vsock. Offline by construction.
+	// Local-first, not offline: clinic data, compute and storage stay on this
+	// computer, and control/browser traffic still goes over vsock — but the
+	// guest gets outbound-only NAT internet by default so features that need
+	// it (e.g. SNOMED lookups via the Snowstorm terminology server) work.
+	// CARE_NO_NETWORK=1 disables this NIC for offline testing/diagnosis.
+	if os.Getenv("CARE_NO_NETWORK") != "1" {
+		nat, e := vz.NewNATNetworkDeviceAttachment()
+		if e != nil {
+			return nil, e
+		}
+		netCfg, e := vz.NewVirtioNetworkDeviceConfiguration(nat)
+		if e != nil {
+			return nil, e
+		}
+		mac, e := vz.NewRandomLocallyAdministeredMACAddress()
+		if e != nil {
+			return nil, e
+		}
+		netCfg.SetMACAddress(mac)
+		cfg.SetNetworkDevicesVirtualMachineConfiguration([]*vz.VirtioNetworkDeviceConfiguration{netCfg})
+	}
 	output, e := os.OpenFile(filepath.Join(state, "console.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if e != nil {
 		return nil, e

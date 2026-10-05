@@ -47,9 +47,16 @@ password recovery, LAN access, or supported in-place updates.
 
 One guest runs native Python 3.13/Gunicorn, Celery worker and beat, PostgreSQL 17,
 Redis, MinIO, Caddy, and the prebuilt CARE frontend. Python packages are fetched
-with hashes checked against CARE's lock and installed at **build time**. The guest
-has no NIC: control and browser traffic use virtio sockets. External email/SMS,
-hosted plugins, and other internet integrations consequently do not work yet.
+with hashes checked against CARE's lock and installed at **build time**. This is
+**local-first, not offline-only**: all clinic data, compute and storage stay on
+this computer, and host↔guest control/browser traffic always goes over virtio
+sockets — but on macOS the guest also gets outbound-only NAT internet access by
+default, so features that need it (SNOMED code lookups via the Snowstorm
+terminology server, for example) work instead of failing. Nothing is exposed to
+the LAN; the guest firewall blocks all unsolicited inbound traffic. Linux does
+not have this network device yet (tracked gap — Firecracker needs host-side
+tap/NAT setup we haven't wired up). Email/SMS and other third-party integrations
+still are not configured in this alpha regardless of platform.
 
 The OS/application image is read-only. Database, objects, generated settings,
 static files and signing keys live on a separate 8 GiB ext4 data disk. First boot

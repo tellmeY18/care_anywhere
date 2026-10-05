@@ -1,9 +1,12 @@
 # CARE Anywhere — 0.1.0-alpha.1
 
-An offline, single-computer CARE EMR appliance. No Docker, Nix, Python, Node
-or Git required to run it — those tools are only needed to build it. Everything
-(backend, database, object storage, and the real CARE frontend) runs inside a
-small Linux microVM that boots directly from the native launcher.
+An offline-capable, **local-first** single-computer CARE EMR appliance. No
+Docker, Nix, Python, Node or Git required to run it — those tools are only
+needed to build it. Everything (backend, database, object storage, and the
+real CARE frontend) runs inside a small Linux microVM that boots directly from
+the native launcher. Clinic data, compute and storage always stay on this
+computer; on macOS the appliance also gets outbound-only internet access by
+default so features like SNOMED code lookups work, rather than failing.
 
 This is an **early alpha**: use test records only. See "Known limitations" below
 before relying on it for anything real.
@@ -64,15 +67,19 @@ shasum -a 256 -c CARE-Anywhere-0.1.0-alpha.1-<file>.sha256
 - One Linux microVM per clinic: Django/Gunicorn, Celery worker + beat,
   PostgreSQL 17, Redis, MinIO (S3-compatible storage), Caddy, and the real
   prebuilt CARE frontend.
-- The guest has **no network interface** — all host↔guest traffic (control API,
-  browser proxy) goes over virtio sockets. The appliance is offline by
-  construction; email, SMS and other internet-dependent CARE features will not
-  work in this alpha.
+- The guest's control API and the CARE browser proxy always go over **virtio
+  sockets**, never a general network path. On **macOS**, the guest also gets
+  outbound-only NAT internet by default (no inbound exposure, nothing on the
+  LAN) — this is what lets SNOMED code lookups and similar CARE features reach
+  the internet instead of failing. **Linux does not have this yet**: it
+  remains network-isolated for now (tracked gap, not a design choice). Email,
+  SMS, and hosted plugins are still not configured in this alpha regardless
+  of platform.
 - The desktop control panel and setup wizard reuse CARE Clinic's actual React
   UI (MIT, `ohcnetwork/care_clinic`), adapted to this VM-backed launcher instead
   of Clinic's Docker Compose engine.
 - Facility/department/staff onboarding reuses CARE's own unmodified
-  `care_onboarding_fe` plugin (MIT), bundled for fully offline use.
+  `care_onboarding_fe` plugin (MIT), bundled for local, no-internet-required use.
 - Encrypted whole-disk backup and restore via the command line (see README).
 
 ## Known limitations in this alpha
@@ -83,6 +90,10 @@ shasum -a 256 -c CARE-Anywhere-0.1.0-alpha.1-<file>.sha256
   now" in the panel, or the `backup`/`restore` CLI commands).
 - **No password recovery codes, no in-app update channel.** Losing the admin
   password currently has no self-service recovery path.
+- **Linux has no internet access yet.** macOS gets it by default (see "What's
+  inside" above); the equivalent for Firecracker/Linux is not implemented.
+  CARE features that need live internet (e.g. SNOMED/terminology lookups) will
+  fail on Linux in this alpha.
 - **Windows is not supported yet.**
 - **Intel Macs are not built yet** — Apple Silicon only.
 - **Linux ARM64 boot is unverified** in this release (builds and passes
