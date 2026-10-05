@@ -11,6 +11,10 @@ on:
         description: 'Windows diagnostics only: reuse appliance/interfaces from this run ID; never publishes'
         type: string
         default: ''
+      publish_tested:
+        description: 'Publish verified alpha-22 artifacts without rebuilding'
+        type: boolean
+        default: false
   push:
     branches: [release/alpha]
     paths-ignore: ['**/*.md']
@@ -24,8 +28,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  publish-tested:
+    if: inputs.publish_tested
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/publish-tested.yml
+
   checks:
-    if: inputs.windows_from_run == ''
+    if: inputs.windows_from_run == '' && !inputs.publish_tested
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -205,7 +216,7 @@ jobs:
           retention-days: 14
 
   windows:
-    if: always() && !cancelled() && (needs.appliance.result == 'success' || inputs.windows_from_run != '')
+    if: always() && !cancelled() && !inputs.publish_tested && (needs.appliance.result == 'success' || inputs.windows_from_run != '')
     needs: [checks, appliance]
     runs-on: windows-2022
     timeout-minutes: 180
