@@ -2,6 +2,11 @@ name: Build CARE Anywhere alpha
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish a GitHub prerelease from this run (requires manual dispatch; never runs on a plain push)'
+        type: boolean
+        default: false
   push:
     branches: [release/alpha]
     paths-ignore: ['**/*.md']
@@ -172,3 +177,36 @@ jobs:
             dist/releases/*.sha256
           compression-level: 0
           retention-days: 14
+
+  release:
+    needs: [appliance, macos]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: 'linux-*'
+          path: assets
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: macos-arm64
+          path: assets
+      - name: Verify every asset checksum before publishing
+        working-directory: assets
+        run: |
+          ls -la
+          for sha in *.sha256; do shasum -a 256 -c "$sha"; done
+      - name: Create prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: alpha-${{ github.run_number }}
+        run: |
+          gh release create "$TAG" assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "CARE Anywhere 0.1.0-alpha.1 (build ${{ github.run_number }})" \
+            --notes-file .github/release-notes.md \
+            --prerelease
