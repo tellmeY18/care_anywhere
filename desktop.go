@@ -32,6 +32,32 @@ func openURL(url string) error {
 	return exec.Command("xdg-open", url).Run()
 }
 
+// friendlyStartError turns the last lines of the launcher log into plain-language
+// guidance. Falls back to a message that still points at the diagnostics panel,
+// which the UI now always shows a button for (never a dead end for the reader).
+func friendlyStartError(state string) string {
+	tail := ""
+	if b, e := os.ReadFile(filepath.Join(state, "launcher.log")); e == nil {
+		lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+		if len(lines) > 20 {
+			lines = lines[len(lines)-20:]
+		}
+		tail = strings.ToLower(strings.Join(lines, "\n"))
+	}
+	switch {
+	case strings.Contains(tail, "insufficient disk space"):
+		return "Not enough free disk space. CARE needs about 9 GB free to prepare your clinic. Free up space on this computer, then open Diagnostics below and press Try again."
+	case strings.Contains(tail, "checksum mismatch") || strings.Contains(tail, "invalid manifest") || strings.Contains(tail, "invalid bundle"):
+		return "Some app files look incomplete or damaged. Try reinstalling CARE Anywhere from a fresh download."
+	case strings.Contains(tail, "address already in use") || strings.Contains(tail, "bind: "):
+		return "Another program on this computer is using the port CARE needs. Close other clinic windows, restart this computer if needed, then open Diagnostics below and press Try again."
+	case strings.Contains(tail, "kvm") || strings.Contains(tail, "/dev/kvm"):
+		return "This computer needs hardware virtualization enabled, and your user needs access to it. Ask your administrator, then open Diagnostics below and press Try again."
+	default:
+		return "CARE could not start. Open Diagnostics below to see what happened, then press Try again."
+	}
+}
+
 func defaultBundle() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -174,7 +200,7 @@ func desktop(state, bundle string) error {
 			defer mu.Unlock()
 			child = nil
 			if e != nil {
-				phase, detail = "error", "CARE could not start. Open diagnostics for details, then try again."
+				phase, detail = "error", friendlyStartError(state)
 			} else {
 				phase, detail = "stopped", "Your clinic is stopped. Your records are saved on this computer."
 			}

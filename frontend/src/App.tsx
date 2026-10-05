@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Callout } from "@/components/onboarding";
+import { Spinner } from "@/components/spinner";
 import { AdminStep } from "@/screens/setup/configuration-steps";
 import { SetupLayout } from "@/screens/setup/setup-layout";
 import { PanelScreen } from "@/screens/panel/panel-screen";
@@ -14,25 +15,88 @@ import { useAppUpdate } from "@/hooks/use-app-update";
 export function App() {
   const care = useCare();
   const [form, setForm] = useState(EMPTY_SETUP_FORM);
-  const [state, setState] = useState<ApplianceStatus>({healthy:false, configured:false, detail:"Preparing your offline clinic…", phase:"starting", platform:"", backupDir:"", stateDir:""});
+  const [state, setState] = useState<ApplianceStatus>({ healthy: false, configured: false, detail: "Checking on your clinic…", phase: "starting", platform: "", backupDir: "", stateDir: "" });
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [diagnostics, setDiagnostics] = useState("");
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const update = useAppUpdate(true, false);
-  useEffect(() => { let live=true; const poll=async()=>{try{const s=await appliance("/status");if(live)setState(s)}catch(e){if(live)setError(String(e))}}; void poll();const timer=setInterval(poll,3000);return()=>{live=false;clearInterval(timer)}; },[]);
-  useEffect(()=>{ if (state.configured && care.ready && care.flow!=="panel") care.openPanel(); },[state.configured,care.ready,care.flow,care.openPanel]);
+
+  useEffect(() => {
+    let live = true;
+    const poll = async () => { try { const s = await appliance("/status"); if (live) setState(s); } catch (e) { if (live) setError(String(e)); } };
+    void poll();
+    const timer = setInterval(poll, 3000);
+    return () => { live = false; clearInterval(timer); };
+  }, []);
+  useEffect(() => { if (state.configured && care.ready && care.flow !== "panel") care.openPanel(); }, [state.configured, care.ready, care.flow, care.openPanel]);
+  useEffect(() => { setDiagnosticsOpen(false); setDiagnostics(""); }, [state.phase]);
+
   if (care.flow === "panel") return <PanelScreen />;
+
   const strong = form.adminPassword.length >= 12;
+  const passwordsMatch = form.adminConfirm === form.adminPassword;
   const submit = async () => {
-    if (!strong || form.adminPassword !== form.adminConfirm) return;
-    setWorking(true);setError("");
-    try { await appliance("/setup","POST",{username:"admin",password:form.adminPassword});care.openPanel(); }
-    catch(e){setError(String(e))} finally{setWorking(false)}
+    if (!strong || !passwordsMatch) return;
+    setWorking(true); setError("");
+    try { await appliance("/setup", "POST", { username: "admin", password: form.adminPassword }); care.openPanel(); }
+    catch (e) { setError(String(e)); } finally { setWorking(false); }
   };
-  return <SetupLayout steps={["software","admin"]} page={state.healthy?"admin":"software"} done={{software:state.healthy}} working={working}
-    title={state.healthy?"Creating the admin password":"Preparing CARE"} subtitle={state.healthy?"Your first sign-in for CARE. Add clinic details and staff after signing in.":state.detail}
-    note="CARE Anywhere alpha · local computer only" next={submit} nextDisabled={!state.healthy||!strong||form.adminPassword!==form.adminConfirm} update={update}>
-    {state.healthy ? <AdminStep form={form} patch={values=>setForm(f=>({...f,...values}))} strength={{strong,message:"Use at least 12 characters."}} passwordError="" folderProblem="" recovery={EMPTY_RECOVERY} recoveryError="" busy={working} action="" onSave={()=>{}} onPrint={()=>{}} onReload={()=>{}} onBackups={()=>{}} onOpenFolder={()=>{}} />
-      : <Callout title={state.phase==="error"?"CARE needs attention":"Everything is included"}>The appliance is checked before startup. No software downloads are needed.{state.phase==="error"?<Button onClick={()=>void appliance("/start","POST",{})}>Try again</Button>:null}</Callout>}
-    {error?<Callout tone="danger" title="Could not continue">{error}</Callout>:null}
+  const retry = async () => { setError(""); try { await appliance("/start", "POST", {}); } catch (e) { setError(String(e)); } };
+  const loadDiagnostics = async () => {
+    const opening = !diagnosticsOpen;
+    setDiagnosticsOpen(opening);
+    if (!opening || diagnostics) return;
+    setDiagnosticsLoading(true);
+    try { setDiagnostics(await appliance("/logs")); }
+    catch (e) { setDiagnostics(`Could not load diagnostics: ${e}`); }
+    finally { setDiagnosticsLoading(false); }
+  };
+
+  const isError = state.phase === "error";
+  const title = state.healthy ? "Creating the admin password"
+    : isError ? "CARE needs attention"
+    : "Getting your clinic ready";
+  const subtitle = state.healthy
+    ? "Your first sign-in for CARE. Add clinic details and staff after signing in."
+    : state.detail;
+
+  return <SetupLayout steps={["software", "admin"]} page={state.healthy ? "admin" : "software"} done={{ software: state.healthy }} working={working}
+    title={title} subtitle={subtitle}
+    note="CARE Anywhere alpha · local computer only" next={submit} nextDisabled={!state.healthy || !strong || !passwordsMatch} update={update}>
+    {state.healthy ? (
+      <AdminStep form={form} patch={values => setForm(f => ({ ...f, ...values }))} strength={{ strong, message: "Use at least 12 characters." }}
+        passwordError="" folderProblem="" recovery={EMPTY_RECOVERY} recoveryError="" busy={working} action=""
+        onSave={() => {}} onPrint={() => {}} onReload={() => {}} onBackups={() => {}} onOpenFolder={() => {}} />
+    ) : isError ? (
+      <Callout tone="danger" title="Something went wrong">
+        {state.detail}
+        <div className="on-actions">
+          <Button onClick={retry}>Try again</Button>
+          <Button variant="ghost" onClick={loadDiagnostics}>{diagnosticsOpen ? "Hide diagnostics" : "Show diagnostics"}</Button>
+        </div>
+      </Callout>
+    ) : (
+      <Callout title="Everything is included">
+        CARE Anywhere runs entirely on this computer — no software downloads are needed once it's installed.
+        This first check can take a minute or two.
+        <div className="on-actions">
+          {state.phase === "starting" ? <span className="on-row" role="status"><Spinner />Working…</span> : null}
+          <Button variant="ghost" onClick={loadDiagnostics}>{diagnosticsOpen ? "Hide diagnostics" : "Show diagnostics"}</Button>
+        </div>
+      </Callout>
+    )}
+    {diagnosticsOpen ? (
+      <Callout title="Diagnostics">
+        <p className="on-small">
+          This is a technical log of what CARE has been doing. It can help if you're asking someone for support —
+          it does not contain patient data, but may contain file paths on this computer.
+        </p>
+        {diagnosticsLoading ? <span className="on-row" role="status"><Spinner />Loading…</span>
+          : <pre className="on-mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 280, overflow: "auto" }}>{diagnostics || "No log output yet."}</pre>}
+      </Callout>
+    ) : null}
+    {error ? <Callout tone="danger" title="Could not continue">{error}</Callout> : null}
   </SetupLayout>;
 }
