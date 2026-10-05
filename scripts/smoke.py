@@ -135,7 +135,7 @@ def main():
                 s = wait_healthy(rc, restored, process, "/control/status")
                 assert s["healthy"] and s["configured"]
                 request("http://127.0.0.1:8484/api/v1/auth/login/", data=admin)
-                print("PASS: encrypted backup → restore → same-admin login", flush=True)
+                print("PASS: encrypted backup -> restore -> same-admin login", flush=True)
             finally:
                 request(rc["URL"] + "/control/stop", rc["Token"], {})
                 process.wait(timeout=180)
