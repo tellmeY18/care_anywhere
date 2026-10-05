@@ -3,20 +3,36 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"github.com/mdlayher/vsock"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
 
 func guestMain() error {
-	listener, e := vsock.Listen(8080, nil)
+	var listener net.Listener
+	var e error
+	credentials, err := os.ReadFile("/sys/firmware/qemu_fw_cfg/by_name/opt/care/tls/raw")
+	if err == nil {
+		config, err := guestTLS(credentials, true)
+		if err != nil {
+			return err
+		}
+		listener, e = tls.Listen("tcp", ":8080", config)
+	} else if os.IsNotExist(err) {
+		listener, e = vsock.Listen(8080, nil)
+	} else {
+		return err
+	}
 	if e != nil {
 		return e
 	}
@@ -86,6 +102,36 @@ func guestMain() error {
 		}
 		io.WriteString(w, "Clinic created")
 	})
+	mux.HandleFunc("/reset-password", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "method", 405)
+			return
+		}
+		if !mutation.TryLock() {
+			http.Error(w, "busy", 409)
+			return
+		}
+		defer mutation.Unlock()
+		if _, e := os.Stat("/var/lib/care/configured"); e != nil {
+			http.Error(w, "not configured yet", 409)
+			return
+		}
+		var input struct{ Username, Password string }
+		if e := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input); e != nil || !singleLine(input.Username) || !singleLine(input.Password) || len(input.Password) < 12 || input.Username == "" {
+			http.Error(w, "username and new password (12+ characters) required", 400)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		// Credentials use stdin, never command-line arguments or journal output.
+		cmd := exec.CommandContext(ctx, "/run/current-system/sw/bin/care-admin-reset")
+		cmd.Stdin = bytes.NewReader(mustJSON(input))
+		if e := cmd.Run(); e != nil {
+			http.Error(w, "No administrator with that username was found", 404)
+			return
+		}
+		io.WriteString(w, "Password reset")
+	})
 	mux.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "method", 405)
@@ -96,7 +142,19 @@ func guestMain() error {
 			return
 		}
 		defer mutation.Unlock()
-		if e := exec.Command("systemctl", "poweroff", "--no-block").Run(); e != nil {
+		// Firecracker exits on guest reboot; its minimal machine has no ACPI poweroff.
+		action := "poweroff"
+		if cmdline, e := os.ReadFile("/proc/cmdline"); e == nil {
+			for _, arg := range strings.Fields(string(cmdline)) {
+				if arg == "care.shutdown=reboot" {
+					action = "reboot"
+				}
+			}
+		}
+		// Queue shutdown with systemd rather than stopping our own service before
+		// this HTTP response reaches the host. The host still waits for VM exit
+		// before releasing the clinic lock; this only acknowledges scheduling.
+		if e := exec.Command("systemd-run", "--unit=care-shutdown", "--on-active=2s", "--timer-property=AccuracySec=100ms", "systemctl", action, "--no-block").Run(); e != nil {
 			http.Error(w, e.Error(), 500)
 			return
 		}

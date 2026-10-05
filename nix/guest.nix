@@ -45,6 +45,7 @@ let
     FILE_UPLOAD_BUCKET = "patient-bucket";
     FACILITY_S3_BUCKET = "facility-bucket";
   };
+  databaseSeed = import ./database-seed.nix { inherit pkgs python app env; };
   service = command: {
     wantedBy = [ "multi-user.target" ];
     requires = [ "care-init.service" ]; after = [ "care-init.service" ];
@@ -63,6 +64,13 @@ let
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") env)}
     exec ${pkgs.util-linux}/bin/runuser -u care -- ${python}/bin/python -c 'import json,sys,django; django.setup(); from django.contrib.auth import get_user_model; d=json.load(sys.stdin); U=get_user_model(); assert not U.objects.filter(is_superuser=True).exists(), "Administrator already exists"; U.objects.create_superuser(username=d["Username"],email="",password=d["Password"])'
   '';
+  adminReset = pkgs.writeShellScriptBin "care-admin-reset" ''
+    cd ${app}
+    set -a
+    source /var/lib/care/runtime.env
+    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") env)}
+    exec ${pkgs.util-linux}/bin/runuser -u care -- ${python}/bin/python -c 'import json,sys,django; django.setup(); from django.contrib.auth import get_user_model; d=json.load(sys.stdin); U=get_user_model(); u=U.objects.get(username=d["Username"],is_superuser=True); u.set_password(d["Password"]); u.save()'
+  '';
 in {
   system.stateVersion = "25.05";
   networking.hostName = "care-anywhere";
@@ -71,8 +79,17 @@ in {
     mem = 4096; vcpu = 2; storeOnDisk = true;
     volumes = [{ image = "data.img"; mountPoint = "/var/lib"; size = 8192; }];
   };
-  boot.kernelModules = [ "vmw_vsock_virtio_transport" ];
+  boot.kernelModules = [ "vmw_vsock_virtio_transport" "virtio_net" "qemu_fw_cfg" ];
+  # Local-first: the host attaches outbound-only NAT internet by default (see
+  # vm_darwin.go) so features that need it — e.g. SNOMED lookups via the
+  # Snowstorm terminology server — work. The guest DHCPs if a NIC appears and
+  # is otherwise inert (no NIC => no traffic). The firewall below blocks all
+  # unsolicited inbound traffic; nothing listens for the LAN or the internet.
+  networking.useDHCP = true;
   networking.firewall.enable = true;
+  # QEMU user-mode NAT forwards only a host loopback socket. The agent requires
+  # a fresh per-boot client certificate; all application services stay loopback-only.
+  networking.firewall.allowedTCPPorts = [ 8080 ];
   users.groups.care = {};
   users.users.care = { isSystemUser = true; group = "care"; };
   services.postgresql = {
@@ -86,7 +103,7 @@ in {
     rootCredentialsFile = "/var/lib/care/minio.env";
   };
   fonts = { fontconfig.enable = true; packages = [ pkgs.dejavu_fonts ]; };
-  environment.systemPackages = [ admin ];
+  environment.systemPackages = [ admin adminReset ];
   systemd.services.care-secrets = {
     requiredBy = [ "minio.service" "care-init.service" ]; before = [ "minio.service" "care-init.service" ];
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; StateDirectory = "care"; };
@@ -102,13 +119,29 @@ in {
     environment = env;
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; User = "care"; Group = "care"; WorkingDirectory = app; EnvironmentFile = "/var/lib/care/runtime.env"; };
     script = ''
+      # A logical seed avoids replaying hundreds of historical migrations under
+      # software emulation. Restore only a genuinely empty public schema, in
+      # one transaction: interruption rolls back and is safe to retry.
+      tables=$(${pkgs.postgresql_17}/bin/psql "$DATABASE_URL" -Atc \
+        "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")
+      if [ "$tables" = 0 ]; then
+        echo "Restoring empty migrated CARE database"
+        ${pkgs.postgresql_17}/bin/pg_restore --dbname="$DATABASE_URL" \
+          --no-owner --no-privileges --single-transaction --exit-on-error \
+          ${databaseSeed}/empty.dump
+      fi
       ${python}/bin/python manage.py migrate --noinput
       ${python}/bin/python manage.py sync_permissions_roles
       ${python}/bin/python manage.py sync_valueset
       ${python}/bin/python manage.py collectstatic --noinput
     '';
   };
-  systemd.services.care-api = service "${python}/bin/gunicorn config.wsgi:application --bind 127.0.0.1:9000 --workers=2";
+  # Django/PDF imports can exceed Gunicorn's 30s default under explicit TCG.
+  # Keep a bounded timeout and memory-backed heartbeats instead of killing
+  # workers repeatedly before they can answer the first health request.
+  systemd.services.care-api = lib.recursiveUpdate
+    (service "${python}/bin/gunicorn config.wsgi:application --bind 127.0.0.1:9000 --workers=2 --timeout=300 --worker-tmp-dir=/run/care-api")
+    { serviceConfig.RuntimeDirectory = "care-api"; };
   systemd.services.care-buckets = {
     wantedBy = [ "multi-user.target" ];
     requires = [ "minio.service" "care-secrets.service" ];

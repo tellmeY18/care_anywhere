@@ -1,0 +1,85 @@
+name: Publish tested multiplatform alpha
+
+on:
+  workflow_call:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-alpha-22
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify source commits and acceptance jobs
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GH_REPO"]}/{path}']))
+          sources = [
+              (37350309132, 'c39ec3f2ffa2e8ee01996c26edb9bf17311b6018', {
+                  'checks', 'appliance (ubuntu-24.04, x86_64-linux, amd64)',
+                  'appliance (ubuntu-24.04-arm, aarch64-linux, arm64)', 'macos'}),
+              (37360309843, 'e8c7742adfb30618f318529db4debc5e098dabed', {'windows'}),
+          ]
+          for run, sha, required in sources:
+              info = api(f'actions/runs/{run}')
+              assert info['head_sha'] == sha and info['status'] == 'completed'
+              jobs = api(f'actions/runs/{run}/jobs?per_page=100')['jobs']
+              passed = {j['name'] for j in jobs if j['conclusion'] == 'success'}
+              assert required <= passed, required - passed
+          # The final commit changes only CI output encoding and a smoke-test
+          # message; all shipped application/appliance sources are identical.
+          diff = api('compare/c39ec3f2ffa2e8ee01996c26edb9bf17311b6018...e8c7742adfb30618f318529db4debc5e098dabed')
+          assert {f['filename'] for f in diff['files']} == {'.github/workflows/alpha.yml', 'scripts/smoke.py'}
+          PY
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 37350309132
+          github-token: ${{ github.token }}
+          pattern: linux-*
+          path: assets
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 37350309132
+          github-token: ${{ github.token }}
+          name: macos-arm64
+          path: assets
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 37360309843
+          github-token: ${{ github.token }}
+          name: windows-amd64
+          path: assets
+      - name: Verify exact release assets and checksums
+        working-directory: assets
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          names = {f'CARE-Anywhere-0.1.0-alpha.2-{suffix}' for suffix in (
+              'linux-amd64.AppImage', 'linux-arm64.AppImage', 'macos-arm64.dmg', 'windows-amd64.exe')}
+          assert {p.name for p in Path('.').iterdir()} == names | {n+'.sha256' for n in names}
+          for name in sorted(names):
+              digest, filename = Path(name+'.sha256').read_text().split()
+              assert filename == name
+              with open(name, 'rb') as f:
+                  assert hashlib.file_digest(f, 'sha256').hexdigest() == digest, name
+              print('Verified:', name)
+          PY
+      - name: Publish alpha-22
+        run: |
+          gh release create alpha-22 assets/* \
+            --target e8c7742adfb30618f318529db4debc5e098dabed \
+            --title 'CARE Anywhere 0.1.0-alpha.2 — macOS, Linux & Windows' \
+            --notes-file .github/release-notes.md --prerelease

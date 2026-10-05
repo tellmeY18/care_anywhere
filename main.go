@@ -14,7 +14,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
@@ -46,7 +45,7 @@ func run() error {
 		return guestMain()
 	}
 	if len(os.Args) < 2 {
-		return errors.New("usage: care-anywhere serve|status|stop|backup|restore|doctor [options]")
+		return openDesktop()
 	}
 	home, err := os.UserConfigDir()
 	if err != nil {
@@ -58,6 +57,7 @@ func run() error {
 	port := fs.Int("port", 8484, "local control and clinic port")
 	file := fs.String("file", "", "backup file")
 	key := fs.String("key", "", "recovery identity file")
+	noOpen := fs.Bool("no-open", false, "do not open a browser")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -66,10 +66,12 @@ func run() error {
 		return err
 	}
 	switch os.Args[1] {
+	case "desktop":
+		return desktop(*state, *bundle)
 	case "doctor":
 		return doctor()
 	case "serve":
-		return serve(*state, *bundle, *port)
+		return serve(*state, *bundle, *port, *noOpen)
 	case "backup":
 		return backup(*state, *file)
 	case "restore":
@@ -131,7 +133,7 @@ func saveJSON(path string, v any) error {
 	return atomicWrite(path, b, 0600)
 }
 
-func serve(state, bundle string, port int) error {
+func serve(state, bundle string, port int, noOpen bool) error {
 	if bundle == "" {
 		return errors.New("--bundle is required")
 	}
@@ -172,7 +174,12 @@ func serve(state, bundle string, port int) error {
 	if err != nil {
 		return err
 	}
-	defer machine.Close()
+	defer func() {
+		if e := machine.Close(); e != nil {
+			log.Printf("Waiting for clinic shutdown; retaining the data lock: %v", e)
+			<-machine.Done()
+		}
+	}()
 	transport := &http.Transport{DialContext: machine.Dial, ResponseHeaderTimeout: 15 * time.Minute}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 15 * time.Minute}
@@ -182,7 +189,12 @@ func serve(state, bundle string, port int) error {
 	// Guest agent management endpoints must never be forwarded without host auth.
 	token := randomToken()
 	address := fmt.Sprintf("127.0.0.1:%d", port)
-	listener, err := net.Listen("tcp", address)
+	clinicListener, err := net.Listen("tcp", address)
+	if err != nil {
+		return err
+	}
+	defer clinicListener.Close()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
@@ -205,7 +217,7 @@ func serve(state, bundle string, port int) error {
 		if r.URL.Path == "/control/" && r.Method == "GET" {
 			w.Header().Set("Content-Type", "text/html")
 			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'")
-			io.WriteString(w, controlHTML)
+			io.WriteString(w, strings.ReplaceAll(controlHTML, `href="/"`, `href="http://`+address+`/"`))
 			return
 		}
 		if r.Header.Get("Authorization") != "Bearer "+token {
@@ -259,6 +271,25 @@ func serve(state, bundle string, port int) error {
 			defer resp.Body.Close()
 			w.WriteHeader(resp.StatusCode)
 			io.Copy(w, resp.Body)
+		case "/control/reset-password":
+			if r.Method != "POST" {
+				http.Error(w, "method", 405)
+				return
+			}
+			if !mutation.TryLock() {
+				http.Error(w, "busy", 409)
+				return
+			}
+			defer mutation.Unlock()
+			req, _ := http.NewRequest("POST", "http://guest/reset-password", http.MaxBytesReader(w, r.Body, 8192))
+			resp, e := client.Do(req)
+			if e != nil {
+				http.Error(w, e.Error(), 502)
+				return
+			}
+			defer resp.Body.Close()
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, resp.Body)
 		case "/control/stop":
 			if r.Method != "POST" {
 				http.Error(w, "method", 405)
@@ -286,31 +317,41 @@ func serve(state, bundle string, port int) error {
 			http.NotFound(w, r)
 		}
 	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != listener.Addr().String() {
+	clinicMux := http.NewServeMux()
+	// CARE Clinic's onboarding plugin is prebuilt and shipped locally for use without internet access.
+	clinicMux.Handle("/onboarding/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != clinicListener.Addr().String() {
+			http.Error(w, "invalid host", 403)
+			return
+		}
+		http.StripPrefix("/onboarding/", http.FileServer(http.Dir(filepath.Join(filepath.Dir(bundle), "onboarding")))).ServeHTTP(w, r)
+	}))
+	clinicMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != clinicListener.Addr().String() {
 			http.Error(w, "invalid host", 403)
 			return
 		}
 		p := path.Clean(r.URL.Path)
-		if p == "/setup" || p == "/stop" || p == "/status" || p == "/logs" {
+		if p == "/setup" || p == "/stop" || p == "/status" || p == "/logs" || strings.HasPrefix(p, "/control") {
 			http.NotFound(w, r)
 			return
 		}
 		proxy.ServeHTTP(w, r)
 	})
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	defer server.Close()
+	clinicServer := &http.Server{Handler: clinicMux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	defer clinicServer.Close()
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.Serve(listener) }()
+	go func() { errCh <- clinicServer.Serve(clinicListener) }()
 	ui := c.URL + "/control/#" + token
 	log.Printf("Control panel: %s/control/ (access link saved privately in %s)", c.URL, state)
 	if err = atomicWrite(filepath.Join(state, "open.html"), []byte("<meta http-equiv=\"refresh\" content=\"0;url="+ui+"\">"), 0600); err != nil {
 		return err
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		_ = exec.Command("open", ui).Run()
-	case "linux":
-		_ = exec.Command("xdg-open", ui).Run()
+	if !noOpen {
+		_ = openURL(ui)
 	}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)

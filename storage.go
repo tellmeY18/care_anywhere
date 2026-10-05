@@ -38,12 +38,13 @@ func verifyBundle(dir string) (manifest, error) {
 		return m, errors.New("invalid manifest")
 	}
 	for _, n := range []string{m.Kernel, m.Initrd, "system.img", "data.img"} {
+		if _, ok := m.Files[n]; !ok {
+			return m, fmt.Errorf("missing checksum: %s", n)
+		}
+	}
+	for n, want := range m.Files {
 		if n == "" || filepath.Base(n) != n {
 			return m, errors.New("invalid bundle filename")
-		}
-		want, ok := m.Files[n]
-		if !ok {
-			return m, fmt.Errorf("missing checksum: %s", n)
 		}
 		f, e := os.Open(filepath.Join(dir, n))
 		if e != nil {
@@ -102,10 +103,18 @@ func ensureData(state, bundle string, m manifest) error {
 	if _, e := os.Stat(filepath.Join(state, "release.json")); e == nil {
 		return errors.New("release exists but clinic disk missing; restore a backup")
 	}
-	if e := copyExclusive(filepath.Join(bundle, "data.img"), path); e != nil {
+	stage, e := os.MkdirTemp(state, "initialize-")
+	if e != nil {
 		return e
 	}
-	return saveJSON(filepath.Join(state, "release.json"), m)
+	defer os.RemoveAll(stage)
+	if e := copyExclusive(filepath.Join(bundle, "data.img"), filepath.Join(stage, "data.img")); e != nil {
+		return e
+	}
+	if e := saveJSON(filepath.Join(state, "release.json"), m); e != nil {
+		return e
+	}
+	return os.Rename(filepath.Join(stage, "data.img"), path)
 }
 
 // Cold backups deliberately require the lifecycle lock: no guest may write while

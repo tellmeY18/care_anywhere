@@ -1,8 +1,10 @@
 { pkgs, guest }:
-let cfg = guest.config;
-in pkgs.runCommand "care-anywhere-bundle" { nativeBuildInputs = [ pkgs.e2fsprogs pkgs.python3 ]; } ''
+let
+  cfg = guest.config;
+in
+pkgs.runCommand "care-anywhere-bundle" { nativeBuildInputs = [ pkgs.e2fsprogs pkgs.python3 pkgs.gnutar pkgs.gzip ]; } ''
   mkdir -p $out
-  cp ${if pkgs.stdenv.hostPlatform.isAarch64 then "${cfg.microvm.kernel}/Image" else "${cfg.microvm.kernel.dev}/vmlinux"} $out/kernel
+  cp ${cfg.microvm.kernel}/${pkgs.stdenv.hostPlatform.linux-kernel.target} $out/kernel
   cp ${cfg.microvm.initrdPath} $out/initrd
   cp ${cfg.microvm.storeDisk} $out/system.img
   truncate -s 8G $out/data.img
