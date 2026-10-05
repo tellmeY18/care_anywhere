@@ -14,7 +14,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
@@ -352,12 +351,7 @@ func serve(state, bundle string, port int, noOpen bool) error {
 		return err
 	}
 	if !noOpen {
-		switch runtime.GOOS {
-		case "darwin":
-			_ = exec.Command("open", ui).Run()
-		case "linux":
-			_ = exec.Command("xdg-open", ui).Run()
-		}
+		_ = openURL(ui)
 	}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)

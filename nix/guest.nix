@@ -78,7 +78,7 @@ in {
     mem = 4096; vcpu = 2; storeOnDisk = true;
     volumes = [{ image = "data.img"; mountPoint = "/var/lib"; size = 8192; }];
   };
-  boot.kernelModules = [ "vmw_vsock_virtio_transport" "virtio_net" ];
+  boot.kernelModules = [ "vmw_vsock_virtio_transport" "virtio_net" "qemu_fw_cfg" ];
   # Local-first: the host attaches outbound-only NAT internet by default (see
   # vm_darwin.go) so features that need it — e.g. SNOMED lookups via the
   # Snowstorm terminology server — work. The guest DHCPs if a NIC appears and
@@ -86,6 +86,9 @@ in {
   # unsolicited inbound traffic; nothing listens for the LAN or the internet.
   networking.useDHCP = true;
   networking.firewall.enable = true;
+  # QEMU user-mode NAT forwards only a host loopback socket. The agent requires
+  # a fresh per-boot client certificate; all application services stay loopback-only.
+  networking.firewall.allowedTCPPorts = [ 8080 ];
   users.groups.care = {};
   users.users.care = { isSystemUser = true; group = "care"; };
   services.postgresql = {

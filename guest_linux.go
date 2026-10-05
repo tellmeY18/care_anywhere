@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"github.com/mdlayher/vsock"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -17,7 +19,20 @@ import (
 )
 
 func guestMain() error {
-	listener, e := vsock.Listen(8080, nil)
+	var listener net.Listener
+	var e error
+	credentials, err := os.ReadFile("/sys/firmware/qemu_fw_cfg/by_name/opt/care/tls/raw")
+	if err == nil {
+		config, err := guestTLS(credentials, true)
+		if err != nil {
+			return err
+		}
+		listener, e = tls.Listen("tcp", ":8080", config)
+	} else if os.IsNotExist(err) {
+		listener, e = vsock.Listen(8080, nil)
+	} else {
+		return err
+	}
 	if e != nil {
 		return e
 	}

@@ -1,107 +1,65 @@
-# CARE Anywhere — 0.1.0-alpha.1
+# CARE Anywhere — multiplatform alpha
 
-An offline-capable, **local-first** single-computer CARE EMR appliance. No
-Docker, Nix, Python, Node or Git required to run it — those tools are only
-needed to build it. Everything (backend, database, object storage, and the
-real CARE frontend) runs inside a small Linux microVM that boots directly from
-the native launcher. Clinic data, compute and storage always stay on this
-computer; on macOS the appliance also gets outbound-only internet access by
-default so features like SNOMED code lookups work, rather than failing.
+Local-first CARE EMR: clinic data, database and compute stay on your computer.
+Complete offline packages include the native launcher, Linux appliance, desktop
+control panel and onboarding plugin. No Docker, Nix, Python, Node, Git or separately
+installed QEMU required. **Early alpha: use test records.**
 
-This is an **early alpha**: use test records only. See "Known limitations" below
-before relying on it for anything real.
+## Downloads and installation
 
-## Install on macOS (Apple Silicon only)
+| Platform | Download | Start |
+| --- | --- | --- |
+| macOS 13+ Apple Silicon | `CARE-Anywhere-0.1.0-alpha.2-macos-arm64.dmg` | Drag to Applications, eject, open CARE Anywhere |
+| Linux x86_64 | `CARE-Anywhere-0.1.0-alpha.2-linux-amd64.AppImage` | Mark executable, then open |
+| Linux ARM64 | `CARE-Anywhere-0.1.0-alpha.2-linux-arm64.AppImage` | Mark executable, then open |
+| Windows 10/11 x86_64 | `CARE-Anywhere-0.1.0-alpha.2-windows-amd64.exe` | Run installer, open CARE Anywhere from Start |
 
-1. Download `CARE-Anywhere-0.1.0-alpha.1-macos-arm64.dmg` below.
-2. Open the DMG and drag **CARE Anywhere** into **Applications**, then eject the
-   disk image.
-3. Open **CARE Anywhere** from Applications. **This build is ad-hoc signed, not
-   notarized** — macOS will refuse to open it the first time. Go to
-   **System Settings → Privacy & Security**, scroll to the blocked-app notice,
-   and click **Open Anyway**, then open the app again. Do not disable Gatekeeper
-   system-wide to work around this.
-4. A browser window opens automatically to the control panel. First launch
-   copies and verifies an 8 GiB data disk, so the VM can take a minute or two
-   to go healthy — the panel shows live status while this happens.
-5. Create the administrator account when prompted, then open CARE and sign in
-   with it.
-6. Use **Clinic & staff setup** in the panel to create your facility,
-   departments and additional staff accounts through CARE's own onboarding flow.
+Allow **8 GB RAM and 22 GB free disk**, plus temporary installation/extraction and
+backup space. First preparation copies an 8 GiB data disk and runs migrations;
+the browser control panel appears while it works. Create the administrator, open
+CARE, sign in, then use **Clinic & staff setup** for facility/staff onboarding.
+Closing the browser keeps CARE running. Use **Stop** or **Quit CARE Anywhere**.
 
-Requires macOS 13+ on Apple Silicon, 8 GB RAM, and about 22 GB free disk space.
-Closing the browser tab does **not** stop CARE — use **Stop** or
-**Quit CARE Anywhere** in the panel before shutting down your computer.
-Intel Macs are not built yet.
+- **macOS:** native Virtualization.framework; ad-hoc signed, not notarized. After
+  the first blocked launch, use System Settings → Privacy & Security → Open Anyway.
+- **Linux:** bundled QEMU/KVM, hardware virtualization and read/write `/dev/kvm`
+  access required. Use `chmod +x CARE-Anywhere-*.AppImage`. Requires a browser and
+  `xdg-open`; without FUSE 2 use `--appimage-extract-and-run` and allow extra
+  temporary disk space. Never run as root.
+- **Windows:** bundled QEMU/WHPX. Enable **Windows Hypervisor Platform** in Windows
+  Features and CPU virtualization in firmware, then restart. Per-user installer;
+  no separate QEMU installation. This alpha installer is unsigned.
 
-## Install on Linux (x86_64 and arm64)
+## Changes
 
-1. Download the `.tar.gz` matching your CPU architecture
-   (`CARE-Anywhere-0.1.0-alpha.1-linux-amd64.tar.gz` for most PCs,
-   `-arm64` for ARM64 machines) below.
-2. Extract it: `tar -xzf CARE-Anywhere-0.1.0-alpha.1-linux-*.tar.gz`
-3. As your normal desktop user (**not root**), run the installer once:
-   `cd care-anywhere && ./install.sh`
-4. Launch **CARE Anywhere** from your applications menu. A browser window
-   opens automatically.
-5. Same as macOS from here: wait for the clinic to go healthy, create the
-   administrator, sign in to CARE, then use **Clinic & staff setup**.
+- Shared QEMU lifecycle on Linux and Windows, retaining native macOS virtualization.
+- Outbound-only NAT on all platforms. `CARE_NO_NETWORK=1` restricts outbound
+  connectivity while retaining local control. Third-party features still require
+  internet connectivity and their own service configuration.
+- QEMU management uses a **127.0.0.1-only** forward with fresh per-boot mutual TLS
+  credentials; macOS retains vsock. No management listener binds to the LAN.
+- Windows state locking and kill-on-close VM job; Linux parent-death cleanup.
+- AppImages and complete offline Windows installer built and published by CI.
 
-Requires hardware virtualization enabled in firmware, read/write access to
-`/dev/kvm` (ask your administrator if access is denied), `xdg-open`, a
-browser, 8 GB RAM and about 22 GB free disk space. The Firecracker runtime
-that boots the VM is bundled and checksum-verified — nothing else is
-downloaded at install or first run. Never run the app with `sudo`.
+## Verification and limits
 
-## Verifying your download
+Publication requires Go/UI checks, every platform package, Linux x86_64 QEMU/KVM
+boot/setup/login/restart/encrypted-backup/restore acceptance, and the installed
+Windows package's equivalent real-guest test using explicit **TCG** software
+emulation. Hosted Windows CI has no WHPX; **physical Windows WHPX boot remains
+unverified**. Hosted macOS cannot run nested Virtualization.framework guests;
+macOS packaging/signatures are checked. Linux ARM64 hardware boot remains unverified.
+TCG is an explicit CI/debug option, never an automatic user fallback.
 
-Each archive has a matching `.sha256` file:
+Each download has a `.sha256` sidecar. For example:
 
 ```sh
-shasum -a 256 -c CARE-Anywhere-0.1.0-alpha.1-<file>.sha256
+shasum -a 256 -c CARE-Anywhere-0.1.0-alpha.2-linux-amd64.AppImage.sha256
 ```
 
-## What's inside
+No supported in-place updates, LAN access, scheduled backups, recovery codes or
+cross-architecture restore. Preserve both backup `.age` and `.key` files, with
+the key stored separately. Stop CARE and back up before testing a new alpha.
+Uninstalling preserves clinic data (`%APPDATA%\care-anywhere` on Windows).
 
-- Native Go launcher; no host Docker/Nix/Python/Node/Git at runtime.
-- One Linux microVM per clinic: Django/Gunicorn, Celery worker + beat,
-  PostgreSQL 17, Redis, MinIO (S3-compatible storage), Caddy, and the real
-  prebuilt CARE frontend.
-- The guest's control API and the CARE browser proxy always go over **virtio
-  sockets**, never a general network path. On **macOS**, the guest also gets
-  outbound-only NAT internet by default (no inbound exposure, nothing on the
-  LAN) — this is what lets SNOMED code lookups and similar CARE features reach
-  the internet instead of failing. **Linux does not have this yet**: it
-  remains network-isolated for now (tracked gap, not a design choice). Email,
-  SMS, and hosted plugins are still not configured in this alpha regardless
-  of platform.
-- The desktop control panel and setup wizard reuse CARE Clinic's actual React
-  UI (MIT, `ohcnetwork/care_clinic`), adapted to this VM-backed launcher instead
-  of Clinic's Docker Compose engine.
-- Facility/department/staff onboarding reuses CARE's own unmodified
-  `care_onboarding_fe` plugin (MIT), bundled for local, no-internet-required use.
-- Encrypted whole-disk backup and restore via the command line (see README).
-
-## Known limitations in this alpha
-
-- **Single computer only.** No LAN access for other devices, no mDNS discovery,
-  no TLS/client onboarding — this is unlike CARE Clinic's multi-device model.
-- **No scheduled backups.** Backups are manual only (Stop CARE, then "Back up
-  now" in the panel, or the `backup`/`restore` CLI commands).
-- **No password recovery codes, no in-app update channel.** Losing the admin
-  password currently has no self-service recovery path.
-- **Linux has no internet access yet.** macOS gets it by default (see "What's
-  inside" above); the equivalent for Firecracker/Linux is not implemented.
-  CARE features that need live internet (e.g. SNOMED/terminology lookups) will
-  fail on Linux in this alpha.
-- **Windows is not supported yet.**
-- **Intel Macs are not built yet** — Apple Silicon only.
-- **Linux ARM64 boot is unverified** in this release (builds and passes
-  checksum/signature checks; the real KVM boot/setup/restart/backup/restore
-  test currently only runs on x86_64 CI runners). Linux x86_64 has a full
-  real-boot test passing on every build.
-- Restore requires the same CPU architecture as the original backup.
-- No telemetry, analytics or crash reporting of any kind.
-
-Full architecture notes, build instructions and the CLI reference are in
-[README.md](https://github.com/tellmeY18/care_anywhere/blob/release/alpha/README.md).
+[Architecture, CLI and build documentation](https://github.com/tellmeY18/care_anywhere/blob/release/alpha/README.md).

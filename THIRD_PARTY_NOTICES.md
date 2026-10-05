@@ -53,3 +53,13 @@ CARE Onboarding is built without source modifications from
 `d78c2f177d281f8b27370e8c9f04571a70fcba08` (MIT) and hosted locally in the package.
 Its source, data provenance, and license are at
 https://github.com/ohcnetwork/care_onboarding_fe/tree/d78c2f177d281f8b27370e8c9f04571a70fcba08.
+# Bundled QEMU
+
+Linux packages redistribute Ubuntu's QEMU and shared-library packages with their
+runtime license files. Corresponding source packages are available from
+https://archive.ubuntu.com/ubuntu/pool/ (QEMU: pool/main/q/qemu/).
+Windows packages redistribute Stefan Weil's QEMU 10.2.0 build dated 2025-12-24,
+including its notices, from https://qemu.weilnetz.de/w64/2025/.
+Source and build scripts: https://github.com/stweil/qemu/tree/ar7.
+QEMU is licensed under GPL-2.0 with individual components under other licenses;
+see the bundled upstream notices. Packaging tools are build-time dependencies.

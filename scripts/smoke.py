@@ -56,7 +56,7 @@ def main():
         except urllib.error.HTTPError as e:
             assert e.code == 401
         print("PASS: immediate UI and management authentication", flush=True)
-        for _ in range(300):
+        for _ in range(int(os.environ.get("CARE_SMOKE_POLLS", "300"))):
             s = json.loads(request(c["URL"] + "/status", c["Token"]))
             if s["phase"] == "error":
                 raise RuntimeError(request(c["URL"] + "/logs", c["Token"]).decode())
@@ -80,7 +80,7 @@ def main():
         request(c["URL"] + "/stop", c["Token"], {})
         assert json.loads(request(c["URL"] + "/status", c["Token"]))["phase"] == "stopped"
         request(c["URL"] + "/start", c["Token"], {})
-        for _ in range(120):
+        for _ in range(int(os.environ.get("CARE_SMOKE_POLLS", "120"))):
             s = json.loads(request(c["URL"] + "/status", c["Token"]))
             if s["healthy"]:
                 break
@@ -102,7 +102,7 @@ def main():
             process = subprocess.Popen([str(binary), "serve", "--state", str(restored), "--bundle", str(bundle), "--no-open"], stdout=log, stderr=log)
             rc = wait_control(restored, "control.json", process)
             try:
-                for _ in range(120):
+                for _ in range(int(os.environ.get("CARE_SMOKE_POLLS", "120"))):
                     try:
                         s = json.loads(request(rc["URL"] + "/control/status", rc["Token"]))
                         if s["healthy"]:
@@ -117,6 +117,7 @@ def main():
                 request(rc["URL"] + "/control/stop", rc["Token"], {})
                 process.wait(timeout=180)
         print("PASS: clean shutdown", flush=True)
+        log.close()  # Windows cannot remove an open log file.
         if a.cleanup:
             shutil.rmtree(state)
             if a.restore:

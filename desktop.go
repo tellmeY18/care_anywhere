@@ -29,6 +29,9 @@ func openURL(url string) error {
 	if runtime.GOOS == "darwin" {
 		return exec.Command("open", url).Run()
 	}
+	if runtime.GOOS == "windows" {
+		return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", url).Run()
+	}
 	return exec.Command("xdg-open", url).Run()
 }
 
@@ -53,6 +56,8 @@ func friendlyStartError(state string) string {
 		return "Another program on this computer is using the port CARE needs. Close other clinic windows, restart this computer if needed, then open Diagnostics below and press Try again."
 	case strings.Contains(tail, "kvm") || strings.Contains(tail, "/dev/kvm"):
 		return "This computer needs hardware virtualization enabled, and your user needs access to it. Ask your administrator, then open Diagnostics below and press Try again."
+	case strings.Contains(tail, "hypervisor") || strings.Contains(tail, "whpx"):
+		return "Enable Windows Hypervisor Platform in Windows Features and hardware virtualization in firmware, then restart this computer."
 	default:
 		return "CARE could not start. Open Diagnostics below to see what happened, then press Try again."
 	}
@@ -134,9 +139,6 @@ func controlCall(c control, method, path string, body []byte, timeout time.Durat
 }
 
 func desktop(state, bundle string) error {
-	if runtime.GOOS == "windows" {
-		return errors.New("Windows desktop is not supported yet")
-	}
 	var err error
 	if bundle == "" {
 		bundle, err = defaultBundle()

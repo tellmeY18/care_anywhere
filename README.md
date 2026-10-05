@@ -15,12 +15,19 @@ Download the platform artifact from [Releases](https://github.com/tellmeY18/care
 not notarized: after the first blocked launch, use **System Settings → Privacy &
 Security → Open Anyway**. Do not disable Gatekeeper. Intel Mac builds are not yet available.
 
-**Linux (x86_64):** extract the Linux archive and run `./install.sh` as your normal
-desktop user. Open **CARE Anywhere** from your applications menu. The package
-includes Firecracker; you need hardware virtualization enabled, read/write access
-to `/dev/kvm`, `xdg-open`, and a browser. Never run the desktop app with `sudo`.
-The archive installer is an alpha path; distribution-native graphical installers
-are still pending.
+**Linux (x86_64 or ARM64):** download the matching `.AppImage`, mark it executable
+(`chmod +x CARE-Anywhere-*.AppImage`) and open it as your normal desktop user.
+QEMU and its libraries are bundled. Enable hardware virtualization and give your
+user read/write access to `/dev/kvm`; `xdg-open` and a browser are required.
+If FUSE 2 is unavailable, launch with `--appimage-extract-and-run` (requires
+additional temporary disk space). Never run the desktop app with `sudo`.
+
+**Windows (x86_64, Windows 10/11):** run the `.exe` installer, then open
+**CARE Anywhere** from Start. The installer includes QEMU, the appliance and
+the complete frontend; no runtime downloads are required. Enable **Windows
+Hypervisor Platform** in Windows Features and CPU virtualization in firmware,
+then restart. This alpha is unsigned. WHPX hardware boot needs separate acceptance;
+hosted Windows CI exercises the same package using explicit slow QEMU TCG emulation.
 
 Allow **8 GB RAM and 22 GB free disk** for the app and clinic, plus space for
 backups. The control panel opens immediately while the appliance is verified and
@@ -39,7 +46,8 @@ Backups are saved in `~/CARE Anywhere Backups`; keep both the `.age` archive and
 the `.key` recovery file, storing the key separately. Restore still uses the CLI.
 
 Clinic data lives outside the app in `~/Library/Application Support/care-anywhere`
-on macOS and `${XDG_CONFIG_HOME:-~/.config}/care-anywhere` on Linux. Removing the
+on macOS, `${XDG_CONFIG_HOME:-~/.config}/care-anywhere` on Linux, and
+`%APPDATA%\care-anywhere` on Windows. Removing the
 app keeps that data. Use test records: this alpha has no automatic backups,
 password recovery, LAN access, or supported in-place updates.
 
@@ -49,14 +57,13 @@ One guest runs native Python 3.13/Gunicorn, Celery worker and beat, PostgreSQL 1
 Redis, MinIO, Caddy, and the prebuilt CARE frontend. Python packages are fetched
 with hashes checked against CARE's lock and installed at **build time**. This is
 **local-first, not offline-only**: all clinic data, compute and storage stay on
-this computer, and host↔guest control/browser traffic always goes over virtio
-sockets — but on macOS the guest also gets outbound-only NAT internet access by
-default, so features that need it (SNOMED code lookups via the Snowstorm
-terminology server, for example) work instead of failing. Nothing is exposed to
-the LAN; the guest firewall blocks all unsolicited inbound traffic. Linux does
-not have this network device yet (tracked gap — Firecracker needs host-side
-tap/NAT setup we haven't wired up). Email/SMS and other third-party integrations
-still are not configured in this alpha regardless of platform.
+this computer. macOS uses native Virtualization.framework and vsock; Linux and
+Windows share bundled QEMU with KVM/WHPX acceleration. QEMU control/browser
+traffic uses a loopback-only forward authenticated by fresh per-boot mutual TLS
+credentials passed privately through fw_cfg. All platforms have outbound-only
+NAT by default for features such as SNOMED lookups. `CARE_NO_NETWORK=1` disables
+outbound connectivity while preserving local control. Nothing binds to the LAN.
+Email/SMS and other third-party integrations still are not configured.
 
 The OS/application image is read-only. Database, objects, generated settings,
 static files and signing keys live on a separate 8 GiB ext4 data disk. First boot
@@ -146,7 +153,8 @@ nix build --store ssh-ng://root@kenobi --eval-store auto --no-link \
 ```
 
 Export only the bundle's `manifest.json`, `kernel`, `initrd`, `system.img`, and
-`data.img`, plus `firecracker` for newly built Linux bundles, using tar/rsync.
+`data.img` using tar/rsync. Linux/Windows packaging separately stages QEMU and
+its dependencies with a checked runtime manifest.
 Do not distribute the generated Nix runner or copy
 its entire closure. All Nix paths used at runtime belong **inside** the guest.
 Use checksum verification after interrupted transfers (`rsync -c` if needed).
@@ -163,16 +171,24 @@ tag. Native wheels retain their bundled-library RPATHs.
 ### Package a release
 
 The **Build CARE Anywhere alpha** GitHub Actions workflow builds both Linux
-architectures, the reused desktop frontend and local onboarding plugin, and the
-Apple Silicon DMG. Pushes to `release/alpha` or manual dispatch start it. Download
-`macos-arm64` or `linux-amd64` from the completed run's artifacts. No local Nix
+architectures, the reused desktop frontend and local onboarding plugin, the
+Apple Silicon DMG, Linux AppImages, and Windows x86_64 offline `.exe` installer.
+Pushes to `release/alpha` or manual dispatch start it. Download `macos-arm64`,
+`linux-amd64`, `linux-arm64`, or `windows-amd64` from the run's artifacts. No local Nix
 builder or artifact upload from a developer laptop is required. Nix and npm caches
 speed subsequent runs; large appliance payloads are compressed once between jobs.
 
-The x86_64 Linux job must pass a real KVM boot/setup/restart/backup/restore test.
+The x86_64 Linux AppImage must pass a real QEMU/KVM boot/setup/restart/backup/restore
+test. Windows runs native race tests, installs the actual `.exe`, then exercises
+boot/setup/restart/backup/restore under explicit TCG on the hosted runner.
+There is no automatic fallback to TCG on user machines. Windows WHPX and ARM64
+Linux KVM hardware acceptance remain required outside hosted CI.
 GitHub's ARM macOS runners do not support nested virtualization, so macOS CI
 checks packaging/signatures; the downloaded build still needs a local boot check.
-Prerelease publication follows acceptance testing rather than happening on every push.
+Manual dispatch with `publish_release=true` publishes a new `alpha-N` only after
+all package/test jobs succeed, targeting that run's exact commit. Every asset has
+a SHA-256 sidecar verified before publication. Builds and compilation-based tests
+for release work run in CI, not on developer laptops.
 
 `npm --prefix frontend run test:ui` checks the reused setup/control screens against
 the appliance HTTP contract (install Playwright Chromium first). These focused
@@ -186,6 +202,8 @@ npm --prefix frontend run build
 python3 scripts/build-onboarding.py
 python3 scripts/package.py macos --bundle dist
 python3 scripts/package.py linux --bundle /path/to/linux-bundle
+# On Windows CI (Go, Python, 7-Zip and Inno Setup):
+python scripts/package.py windows --bundle dist/bundle
 ```
 
 Outputs are in `dist/releases/`. Packaging verifies every manifest entry, includes
@@ -223,7 +241,9 @@ python3 scripts/smoke.py --binary dist/care-anywhere-alpha --bundle dist \
 - Linux ARM64 launcher cross-compiles; ARM64 Linux boot remains unverified.
 - Locally hosted CARE Onboarding: standard role/geography import and facility
   creation verified through the actual browser and authenticated CARE API.
-- Windows returns an explicit unsupported error. No WHPX implementation is shipped.
+- QEMU Linux/Windows support replaces the earlier Firecracker/stub implementation.
+  Check the new release's linked Actions run for its acceptance results; historical
+  Firecracker and Apple Silicon checks above do not establish QEMU/WHPX coverage.
 
 ## Before an end-user release
 
@@ -234,7 +254,8 @@ python3 scripts/smoke.py --binary dist/care-anywhere-alpha --bundle dist \
 3. Add scheduled/application-consistent logical backups and interruption recovery,
    with disk-space budgets and restoration tests on a second machine.
 4. Port LAN discovery/TLS/client onboarding and background service integration.
-5. Test Firecracker/jailer on Linux. Windows WHPX is deferred.
+5. Validate Windows WHPX on physical hardware and Linux ARM64 KVM; add sustained
+   platform-specific shutdown/crash testing and Windows signing.
 6. Test clinical browser workflows (including attachments and PDFs), not just HTTP
    responses. Ship third-party notices/source offers for every appliance component.
 

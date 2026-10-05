@@ -8,10 +8,10 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
-import tarfile
+from runtime import stage_runtime, download
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "0.1.0-alpha.1"
+VERSION = "0.1.0-alpha.2"
 
 
 def run(*args, **kwargs):
@@ -20,7 +20,9 @@ def run(*args, **kwargs):
 
 def copy(source, target):
     # APFS copy-on-write avoids another 10 GiB allocation on the build Mac.
-    if os.uname().sysname == "Darwin":
+    if os.name == "nt":
+        shutil.copyfile(source, target)
+    elif os.uname().sysname == "Darwin":
         run("cp", "-c", str(source), str(target))
     else:
         run("cp", "--reflink=auto", "--sparse=always", str(source), str(target))
@@ -28,7 +30,7 @@ def copy(source, target):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("platform", choices=["macos", "linux"])
+    parser.add_argument("platform", choices=["macos", "linux", "windows"])
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=ROOT / "dist/releases")
     args = parser.parse_args()
@@ -82,9 +84,7 @@ def main():
             "Closing the browser keeps CARE running. Stop or quit from its control panel.\n"
             "Removing the app preserves clinic data in ~/Library/Application Support/care-anywhere.\n"
         )
-    else:
-        if "firecracker" not in manifest["files"]:
-            raise ValueError("Linux bundle must include checksum-verified Firecracker")
+    elif args.platform == "linux":
         app = stage / "care-anywhere"
         app.mkdir()
         resources = app
@@ -95,14 +95,22 @@ def main():
         (app / "install.sh").chmod(0o755)
         shutil.copy2(ROOT / "scripts/care-anywhere.svg", app / "care-anywhere.svg")
         (app / "README.txt").write_text(
-            "CARE Anywhere Linux alpha\n\nExtract this archive, then run ./install.sh once.\n"
-            "Launch CARE Anywhere from your applications menu. Everything runs locally.\n"
+            "CARE Anywhere Linux alpha\n\nMake the AppImage executable, then open it.\n"
+            "Without FUSE 2 use --appimage-extract-and-run. Everything runs locally.\n"
             "Requires 8 GB RAM, KVM access, xdg-open, a browser, and 22 GB disk space.\n"
             "If /dev/kvm access is denied, ask your administrator to grant your user KVM access.\n"
             "Never run the desktop app with sudo.\n"
-            "Data is in ${XDG_CONFIG_HOME:-~/.config}/care-anywhere and survives uninstall.\n"
+            "QEMU and its libraries are bundled. Data is in ${XDG_CONFIG_HOME:-~/.config}/care-anywhere and survives uninstall.\n"
             "Stop CARE before removing ~/.local/opt/care-anywhere and its applications-menu entry.\n"
         )
+    else:
+        if os.name != "nt" or arch != "amd64":
+            raise ValueError("Windows packaging requires an x64 Windows host and bundle")
+        app = stage / "care-anywhere"
+        app.mkdir()
+        resources = app
+        dest = app / "bundle"
+        run("go", "build", "-trimpath", "-ldflags=-H=windowsgui", "-o", str(app / "care-anywhere.exe"), ".", cwd=ROOT)
     dest.mkdir()
     shutil.copytree(ROOT / "frontend/dist", resources / "web")
     shutil.copytree(ROOT / "dist/onboarding", resources / "onboarding")
@@ -110,6 +118,8 @@ def main():
         copy(bundle / name, dest / name)
     for name in ["LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", "flake.lock"]:
         shutil.copy2(ROOT / name, resources / name)
+    if args.platform != "macos":
+        stage_runtime(app / "qemu", arch)
     if args.platform == "macos":
         identity = os.environ.get("MACOS_SIGN_IDENTITY", "-")
         run("codesign", "--force", "--sign", identity, "--options", "runtime", "--entitlements", str(ROOT / "entitlements.plist"), str(app))
@@ -120,10 +130,21 @@ def main():
         if identity != "-" and os.environ.get("MACOS_NOTARY_PROFILE"):
             run("xcrun", "notarytool", "submit", str(artifact), "--keychain-profile", os.environ["MACOS_NOTARY_PROFILE"], "--wait")
             run("xcrun", "stapler", "staple", str(artifact))
+    elif args.platform == "linux":
+        (app / "AppRun").write_text('#!/bin/sh\nHERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexec "$HERE/care-anywhere" desktop "$@"\n')
+        (app / "AppRun").chmod(0o755)
+        (app / "care-anywhere.desktop").write_text('[Desktop Entry]\nType=Application\nName=CARE Anywhere\nExec=care-anywhere\nIcon=care-anywhere\nCategories=Education;Science;MedicalSoftware;\nTerminal=false\n')
+        tool = out / "appimagetool"
+        image_arch = "aarch64" if arch == "arm64" else "x86_64"
+        digest = "f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158" if arch == "arm64" else "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+        download(f"https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-{image_arch}.AppImage", tool, digest)
+        tool.chmod(0o755)
+        artifact = out / f"CARE-Anywhere-{VERSION}-linux-{arch}.AppImage"
+        run(str(tool), "--appimage-extract-and-run", "--no-appstream", str(app), str(artifact), env=dict(os.environ, ARCH=image_arch))
     else:
-        artifact = out / f"CARE-Anywhere-{VERSION}-linux-{arch}.tar.gz"
-        with tarfile.open(artifact, "w:gz") as tf:
-            tf.add(app, arcname="care-anywhere")
+        compiler = shutil.which("ISCC.exe") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+        run(compiler, f"/DAppSource={app}", f"/DOutputDir={out}", f"/DAppVersion={VERSION}", str(ROOT / "scripts/windows.iss"))
+        artifact = out / f"CARE-Anywhere-{VERSION}-windows-amd64.exe"
     with artifact.open("rb") as f:
         digest = hashlib.file_digest(f, "sha256").hexdigest()
     artifact.with_suffix(artifact.suffix + ".sha256").write_text(f"{digest}  {artifact.name}\n")

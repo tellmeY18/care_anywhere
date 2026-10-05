@@ -30,13 +30,14 @@ code*, not what the code does.
 main.go            CLI entrypoint: serve | status | stop | logs | backup | restore
 vm.go               machine interface (Dial/Done/Close)
 vm_darwin.go        Apple Virtualization.framework (Code-Hex/vz) — no QEMU on macOS
-vm_linux.go         Firecracker (untested boot — see README "Before an end-user release")
-vm_windows.go       stub, returns explicit "not yet supported" error
-guest_linux.go      runs INSIDE the guest VM (vsock HTTP server: /status /setup /stop /logs)
+vm_qemu.go          shared bundled QEMU lifecycle, authenticated loopback TLS transport
+vm_linux.go         KVM checks and parent-death handling
+vm_windows.go       WHPX checks and kill-on-close Windows Job Object
+guest_linux.go      guest agent: vsock on macOS, mutual TLS on QEMU
 guest_other.go      stub for non-Linux GOOS (guest code only builds for Linux target)
 storage.go          bundle verification, backup (age-encrypted tar.gz), restore
 lock_unix.go/
-lock_windows.go     OS-level advisory lock on clinic state dir (flock on Unix; Windows stub)
+lock_windows.go     OS-level advisory lock on clinic state dir (flock / LockFileEx)
 internal/atomicfile Adapted from CARE Clinic (MIT) — atomic file replacement + Windows ACLs
 internal/diskspace  Adapted from CARE Clinic (MIT) — free-space checks
 nix/                The ENTIRE appliance build: NixOS guest config, Python env, frontend build
@@ -57,17 +58,15 @@ artifacts, bundles, or the `.state/` runtime directory.
 
 2. **Local-first, not offline-only.** Clinic data, compute and storage stay on
    this computer — that part is non-negotiable. The guest gets an
-   **outbound-only NAT network device by default on macOS** (see
+   **outbound-only NAT network device by default on all platforms** (see
    `vm_darwin.go`, disable with `CARE_NO_NETWORK=1`) so features that
    genuinely need live internet (e.g. SNOMED code validation via the
    Snowstorm terminology server at `SNOWSTORM_DEPLOYMENT_URL`) work instead of
-   500ing. All host↔guest control/browser traffic still goes over **virtio
-   sockets (vsock)**, never through this NIC. The guest's own firewall blocks
-   all unsolicited inbound traffic; nothing is exposed to the LAN or internet.
-   Linux (Firecracker) does not have this NIC yet — tap+NAT there needs
-   privileged host setup that conflicts with the no-sudo installer promise;
-   treat that gap as a known, tracked asymmetry, not a decision to silently
-   work around.
+   500ing. macOS control/browser traffic uses **vsock**. Linux and Windows use
+   QEMU user-mode NAT with one **127.0.0.1-only** forward to the guest agent,
+   protected by fresh per-boot mutual TLS credentials delivered through fw_cfg.
+   Never expose a raw unauthenticated management endpoint or bind to the LAN.
+   CARE_NO_NETWORK=1 restricts QEMU egress while preserving local control.
 
 3. **Dependencies install at Nix build time, never at guest boot time.** The
    whole value proposition collapses if the guest runs `pip install` or
@@ -117,6 +116,10 @@ artifacts, bundles, or the `.state/` runtime directory.
 
 This is the loop that was actually used to get this repo to its current
 (verified-booting) state. Follow it rather than guessing.
+
+For release work, run builds, compilation-based tests and packaging in GitHub
+Actions. When the user says no local builds, that includes local Go tests and
+cross-compiles. Formatting and static source inspection are still allowed.
 
 ```sh
 # 1. Fast local checks (every change, before anything else)
@@ -257,10 +260,10 @@ copy the happy path.
 
 ## Things to never do
 
-- Never add a host-side dependency on Docker, Podman, QEMU-on-Linux-as-default,
-  or any container runtime. (Firecracker on Linux and Virtualization.framework
-  on macOS are the only two guest execution paths; Windows is WHPX/QEMU, not
-  yet implemented — see `vm_windows.go`.)
+- Never add Docker, Podman, or any container runtime. Bundled QEMU is the
+  supported Linux (KVM) and Windows (WHPX) runtime; macOS keeps native
+  Virtualization.framework. Users must not install QEMU separately. Explicit
+  CARE_QEMU_ACCEL=tcg is available for slow CI/debug boot testing only.
 - Never commit `dist/`, `.state/`, `*.img`, or any built bundle — `.gitignore`
   already excludes `/dist/`, `/result*`, `/.state/`, `*.log`. If you add new
   build output directories, extend `.gitignore` rather than relying on `git
@@ -275,8 +278,8 @@ copy the happy path.
   before any destructive retag) — not a silent relaxation of the existing check.
 - Never assume the guest has internet access when writing guest-side code
   (`nix/guest.nix`, `guest_linux.go`) — email, SMS, hosted plugins, and any
-  outbound HTTP call will fail by design in this preview. If a feature needs
-  connectivity, document that limitation rather than silently failing.
+  outbound HTTP call can fail without connectivity. Handle and document those
+  failures; default NAT connectivity is not a promise of internet availability.
 
 ## Where to look for more context
 
