@@ -1,6 +1,6 @@
 module github.com/tellmeY18/care_anywhere
 
-go 1.25.0
+go 1.27.1
 
 require (
 	filippo.io/age v1.3.1

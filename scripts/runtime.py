@@ -21,7 +21,7 @@ def stage_runtime(dest, arch):
     dest.mkdir()
     if os.name == "nt":
         installer = dest.parent / "qemu-setup.exe"
-        download("https://qemu.weilnetz.de/w64/2025/qemu-w64-setup-20251224.exe", installer,
+        download("https://qemu.weilnetz.de/w64/2026/qemu-w64-setup-20260811.exe", installer,
                  "f37d9ee8f498879b7ca92a9959d30ce7971f9894f584de574f2ac6f5ba925a7265e9d8556d0f56bc75e4e384fc7cac6baed78a89c2e42cdbef109724f01ec16c", "sha512")
         subprocess.run(["7z", "x", str(installer), "-o" + str(dest), "-y"], check=True)
         installer.unlink()

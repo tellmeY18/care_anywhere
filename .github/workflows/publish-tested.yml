@@ -18,7 +18,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify source commits and acceptance jobs
         run: |
           python3 - <<'PY'
@@ -42,20 +42,20 @@ jobs:
           diff = api('compare/c39ec3f2ffa2e8ee01996c26edb9bf17311b6018...e8c7742adfb30618f318529db4debc5e098dabed')
           assert {f['filename'] for f in diff['files']} == {'.github/workflows/alpha.yml', 'scripts/smoke.py'}
           PY
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           run-id: 37350309132
           github-token: ${{ github.token }}
           pattern: linux-*
           path: assets
           merge-multiple: true
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           run-id: 37350309132
           github-token: ${{ github.token }}
           name: macos-arm64
           path: assets
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           run-id: 37360309843
           github-token: ${{ github.token }}
