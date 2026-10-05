@@ -32,6 +32,9 @@ Closing the browser keeps CARE running. Use **Stop** or **Quit CARE Anywhere**.
 
 ## Changes
 
+- Faster first boot: CI builds an empty migrated database seed. New clinics
+  restore it transactionally instead of replaying historical schema changes;
+  installation secrets and administrator accounts are still created locally.
 - Shared QEMU lifecycle on Linux and Windows, retaining native macOS virtualization.
 - Outbound-only NAT on all platforms. `CARE_NO_NETWORK=1` restricts outbound
   connectivity while retaining local control. Third-party features still require

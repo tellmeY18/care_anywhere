@@ -70,8 +70,12 @@ outbound connectivity while preserving local control. Nothing binds to the LAN.
 Email/SMS and other third-party integrations still are not configured.
 
 The OS/application image is read-only. Database, objects, generated settings,
-static files and signing keys live on a separate 8 GiB ext4 data disk. First boot
-migrates the database; setup creates the initial administrator. No patient data
+static files and signing keys live on a separate 8 GiB ext4 data disk. The Nix
+build runs migrations into a fresh temporary PostgreSQL database and exports an
+empty logical seed. First boot restores that seed transactionally only when the
+public schema has no tables, then checks migrations and loads reference data.
+Existing databases use normal migrations; interruption during seed restore rolls
+back instead of leaving a partially imported schema. Setup creates the initial administrator. No patient data
 or shared installation secrets are baked into the release.
 
 ## Run the local preview

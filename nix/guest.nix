@@ -45,6 +45,7 @@ let
     FILE_UPLOAD_BUCKET = "patient-bucket";
     FACILITY_S3_BUCKET = "facility-bucket";
   };
+  databaseSeed = import ./database-seed.nix { inherit pkgs python app env; };
   service = command: {
     wantedBy = [ "multi-user.target" ];
     requires = [ "care-init.service" ]; after = [ "care-init.service" ];
@@ -118,6 +119,17 @@ in {
     environment = env;
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; User = "care"; Group = "care"; WorkingDirectory = app; EnvironmentFile = "/var/lib/care/runtime.env"; };
     script = ''
+      # A logical seed avoids replaying hundreds of historical migrations under
+      # software emulation. Restore only a genuinely empty public schema, in
+      # one transaction: interruption rolls back and is safe to retry.
+      tables=$(${pkgs.postgresql_17}/bin/psql "$DATABASE_URL" -Atc \
+        "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")
+      if [ "$tables" = 0 ]; then
+        echo "Restoring empty migrated CARE database"
+        ${pkgs.postgresql_17}/bin/pg_restore --dbname="$DATABASE_URL" \
+          --no-owner --no-privileges --single-transaction --exit-on-error \
+          ${databaseSeed}/empty.dump
+      fi
       ${python}/bin/python manage.py migrate --noinput
       ${python}/bin/python manage.py sync_permissions_roles
       ${python}/bin/python manage.py sync_valueset
