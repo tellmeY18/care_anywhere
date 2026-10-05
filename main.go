@@ -272,6 +272,25 @@ func serve(state, bundle string, port int, noOpen bool) error {
 			defer resp.Body.Close()
 			w.WriteHeader(resp.StatusCode)
 			io.Copy(w, resp.Body)
+		case "/control/reset-password":
+			if r.Method != "POST" {
+				http.Error(w, "method", 405)
+				return
+			}
+			if !mutation.TryLock() {
+				http.Error(w, "busy", 409)
+				return
+			}
+			defer mutation.Unlock()
+			req, _ := http.NewRequest("POST", "http://guest/reset-password", http.MaxBytesReader(w, r.Body, 8192))
+			resp, e := client.Do(req)
+			if e != nil {
+				http.Error(w, e.Error(), 502)
+				return
+			}
+			defer resp.Body.Close()
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, resp.Body)
 		case "/control/stop":
 			if r.Method != "POST" {
 				http.Error(w, "method", 405)
@@ -300,7 +319,7 @@ func serve(state, bundle string, port int, noOpen bool) error {
 		}
 	})
 	clinicMux := http.NewServeMux()
-	// CARE Clinic's onboarding plugin is prebuilt and shipped locally for offline use.
+	// CARE Clinic's onboarding plugin is prebuilt and shipped locally for use without internet access.
 	clinicMux.Handle("/onboarding/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != clinicListener.Addr().String() {
 			http.Error(w, "invalid host", 403)

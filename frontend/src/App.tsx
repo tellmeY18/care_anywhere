@@ -2,22 +2,21 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Callout } from "@/components/onboarding";
 import { Spinner } from "@/components/spinner";
-import { AdminStep } from "@/screens/setup/configuration-steps";
+import { AdminSetupForm } from "@/components/admin-setup-form";
 import { SetupLayout } from "@/screens/setup/setup-layout";
 import { PanelScreen } from "@/screens/panel/panel-screen";
-import { EMPTY_RECOVERY } from "@/screens/setup/setup-model";
-import { EMPTY_SETUP_FORM } from "@/state/forms";
 import { useCare } from "@/state/care-store";
 import { appliance, type ApplianceStatus } from "@/lib/appliance";
 import { useAppUpdate } from "@/hooks/use-app-update";
 
-// Reuse CARE Clinic's setup layout and administrator step; VM preparation replaces installation.
+// Reuses CARE Clinic's setup chrome (progress rail, diagnostics layout); the
+// administrator step is purpose-built for this appliance (see admin-setup-form.tsx).
 export function App() {
   const care = useCare();
-  const [form, setForm] = useState(EMPTY_SETUP_FORM);
   const [state, setState] = useState<ApplianceStatus>({ healthy: false, configured: false, detail: "Checking on your clinic…", phase: "starting", platform: "", backupDir: "", stateDir: "" });
   const [working, setWorking] = useState(false);
-  const [error, setError] = useState("");
+  const [statusError, setStatusError] = useState("");
+  const [setupError, setSetupError] = useState("");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnostics, setDiagnostics] = useState("");
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
@@ -25,7 +24,7 @@ export function App() {
 
   useEffect(() => {
     let live = true;
-    const poll = async () => { try { const s = await appliance("/status"); if (live) setState(s); } catch (e) { if (live) setError(String(e)); } };
+    const poll = async () => { try { const s = await appliance("/status"); if (live) { setState(s); setStatusError(""); } } catch (e) { if (live) setStatusError(String(e)); } };
     void poll();
     const timer = setInterval(poll, 3000);
     return () => { live = false; clearInterval(timer); };
@@ -35,15 +34,12 @@ export function App() {
 
   if (care.flow === "panel") return <PanelScreen />;
 
-  const strong = form.adminPassword.length >= 12;
-  const passwordsMatch = form.adminConfirm === form.adminPassword;
-  const submit = async () => {
-    if (!strong || !passwordsMatch) return;
-    setWorking(true); setError("");
-    try { await appliance("/setup", "POST", { username: "admin", password: form.adminPassword }); care.openPanel(); }
-    catch (e) { setError(String(e)); } finally { setWorking(false); }
+  const submit = async (username: string, password: string) => {
+    setWorking(true); setSetupError("");
+    try { await appliance("/setup", "POST", { username, password }); care.openPanel(); }
+    catch (e) { setSetupError(String(e)); } finally { setWorking(false); }
   };
-  const retry = async () => { setError(""); try { await appliance("/start", "POST", {}); } catch (e) { setError(String(e)); } };
+  const retry = async () => { setStatusError(""); try { await appliance("/start", "POST", {}); } catch (e) { setStatusError(String(e)); } };
   const loadDiagnostics = async () => {
     const opening = !diagnosticsOpen;
     setDiagnosticsOpen(opening);
@@ -55,20 +51,18 @@ export function App() {
   };
 
   const isError = state.phase === "error";
-  const title = state.healthy ? "Creating the admin password"
+  const title = state.healthy ? "Create your administrator account"
     : isError ? "CARE needs attention"
     : "Getting your clinic ready";
   const subtitle = state.healthy
-    ? "Your first sign-in for CARE. Add clinic details and staff after signing in."
+    ? "This is your first sign-in for CARE. Add clinic details and staff after signing in."
     : state.detail;
 
   return <SetupLayout steps={["software", "admin"]} page={state.healthy ? "admin" : "software"} done={{ software: state.healthy }} working={working}
     title={title} subtitle={subtitle}
-    note="CARE Anywhere alpha · local computer only" next={submit} nextDisabled={!state.healthy || !strong || !passwordsMatch} update={update}>
+    note="CARE Anywhere alpha · local computer only" update={update}>
     {state.healthy ? (
-      <AdminStep form={form} patch={values => setForm(f => ({ ...f, ...values }))} strength={{ strong, message: "Use at least 12 characters." }}
-        passwordError="" folderProblem="" recovery={EMPTY_RECOVERY} recoveryError="" busy={working} action=""
-        onSave={() => {}} onPrint={() => {}} onReload={() => {}} onBackups={() => {}} onOpenFolder={() => {}} />
+      <AdminSetupForm busy={working} error={setupError} onSubmit={submit} />
     ) : isError ? (
       <Callout tone="danger" title="Something went wrong">
         {state.detail}
@@ -97,6 +91,6 @@ export function App() {
           : <pre className="on-mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 280, overflow: "auto" }}>{diagnostics || "No log output yet."}</pre>}
       </Callout>
     ) : null}
-    {error ? <Callout tone="danger" title="Could not continue">{error}</Callout> : null}
+    {statusError && !isError ? <Callout tone="danger" title="Could not check on CARE">{statusError}</Callout> : null}
   </SetupLayout>;
 }

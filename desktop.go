@@ -401,6 +401,16 @@ func desktop(state, bundle string) error {
 					}
 				}
 			}
+		case "/reset-password":
+			var b []byte
+			b, e = io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+			if e == nil {
+				var cc control
+				cc, e = readControl(state)
+				if e == nil {
+					_, e = controlCall(cc, "POST", "/control/reset-password", b, 2*time.Minute)
+				}
+			}
 		case "/backup":
 			mu.Lock()
 			running := child != nil

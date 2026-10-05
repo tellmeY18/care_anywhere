@@ -87,6 +87,36 @@ func guestMain() error {
 		}
 		io.WriteString(w, "Clinic created")
 	})
+	mux.HandleFunc("/reset-password", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "method", 405)
+			return
+		}
+		if !mutation.TryLock() {
+			http.Error(w, "busy", 409)
+			return
+		}
+		defer mutation.Unlock()
+		if _, e := os.Stat("/var/lib/care/configured"); e != nil {
+			http.Error(w, "not configured yet", 409)
+			return
+		}
+		var input struct{ Username, Password string }
+		if e := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input); e != nil || !singleLine(input.Username) || !singleLine(input.Password) || len(input.Password) < 12 || input.Username == "" {
+			http.Error(w, "username and new password (12+ characters) required", 400)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		// Credentials use stdin, never command-line arguments or journal output.
+		cmd := exec.CommandContext(ctx, "/run/current-system/sw/bin/care-admin-reset")
+		cmd.Stdin = bytes.NewReader(mustJSON(input))
+		if e := cmd.Run(); e != nil {
+			http.Error(w, "No administrator with that username was found", 404)
+			return
+		}
+		io.WriteString(w, "Password reset")
+	})
 	mux.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "method", 405)

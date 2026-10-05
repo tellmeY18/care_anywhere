@@ -12,6 +12,7 @@ import { PhoneDialog } from "./phone-dialog";
 import { backupFailureDetail, panelStatus } from "./panel-status";
 import { PanelBadge, PanelLogButton, PanelNotice, PanelPageHeader, usePanelTask } from "./panel-ui";
 import { usePanelUpdateLock } from "./panel-update-lock";
+import { ResetPasswordCard } from "./reset-password-card";
 
 function backupTime(label: string) {
   const compact = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(label);
@@ -135,6 +136,7 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
       </section>
       <BackupSummary locked={locked} available={status.available} onBackup={() => run("backup-now")} />
     </div>
+    <ResetPasswordCard disabled={locked} />
     {phoneOpen ? <PhoneDialog onClose={() => setPhoneOpen(false)} /> : null}
   </div>;
 }
