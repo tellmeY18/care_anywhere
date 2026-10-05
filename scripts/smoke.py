@@ -12,13 +12,13 @@ import urllib.error
 import urllib.request
 
 
-def request(url, token=None, data=None):
+def request(url, token=None, data=None, timeout=240):
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = "Bearer " + token
     req = urllib.request.Request(url, headers=headers, data=json.dumps(data).encode() if data is not None else None)
     try:
-        with urllib.request.urlopen(req, timeout=240) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read()
     except urllib.error.HTTPError as e:
         # Keep the host's failure reason in CI logs without printing credentials.
@@ -35,6 +35,36 @@ def wait_control(state, name, process):
         except (FileNotFoundError, json.JSONDecodeError):
             time.sleep(1)
     raise TimeoutError("No control endpoint")
+
+
+def wait_healthy(c, state, process, path="/status"):
+    start = time.monotonic()
+    deadline = start + int(os.environ.get("CARE_SMOKE_BOOT_SECONDS", "600"))
+    report = 0
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"Launcher exited: {process.returncode}")
+        s = {}
+        try:
+            s = json.loads(request(c["URL"] + path, c["Token"], timeout=10))
+        except (urllib.error.URLError, TimeoutError):
+            pass
+        if s.get("healthy"):
+            return s
+        if time.monotonic() >= report or s.get("phase") == "error":
+            print(f"Guest wait {int(time.monotonic()-start)}s: phase={s.get('phase')} healthy={s.get('healthy')}", flush=True)
+            # Local logs work even when the guest agent never becomes reachable.
+            for name in ("console.log",):
+                p = state / name
+                if p.exists():
+                    with p.open("rb") as f:
+                        f.seek(max(0, p.stat().st_size - 4096))
+                        print(f.read().decode(errors="replace"), flush=True)
+            report = time.monotonic() + 60
+        if s.get("phase") == "error":
+            raise RuntimeError(request(c["URL"] + "/logs", c["Token"], timeout=10).decode())
+        time.sleep(2)
+    raise TimeoutError("Guest did not become healthy within the elapsed-time boot limit")
 
 
 def main():
@@ -61,15 +91,7 @@ def main():
         except urllib.error.HTTPError as e:
             assert e.code == 401
         print("PASS: immediate UI and management authentication", flush=True)
-        for _ in range(int(os.environ.get("CARE_SMOKE_POLLS", "300"))):
-            s = json.loads(request(c["URL"] + "/status", c["Token"]))
-            if s["phase"] == "error":
-                raise RuntimeError(request(c["URL"] + "/logs", c["Token"]).decode())
-            if s["healthy"]:
-                break
-            time.sleep(2)
-        else:
-            raise TimeoutError(request(c["URL"] + "/logs", c["Token"]).decode())
+        s = wait_healthy(c, state, process)
         assert not s["configured"]
         admin = {"username": "alphatest", "password": secrets.token_urlsafe(24)}
         request(c["URL"] + "/setup", c["Token"], admin)
@@ -85,11 +107,7 @@ def main():
         request(c["URL"] + "/stop", c["Token"], {})
         assert json.loads(request(c["URL"] + "/status", c["Token"]))["phase"] == "stopped"
         request(c["URL"] + "/start", c["Token"], {})
-        for _ in range(int(os.environ.get("CARE_SMOKE_POLLS", "120"))):
-            s = json.loads(request(c["URL"] + "/status", c["Token"]))
-            if s["healthy"]:
-                break
-            time.sleep(2)
+        s = wait_healthy(c, state, process)
         assert s["healthy"] and s["configured"]
         request("http://127.0.0.1:8484/api/v1/auth/login/", data=admin)
         print("PASS: stop/start preserves administrator", flush=True)
@@ -107,14 +125,7 @@ def main():
             process = subprocess.Popen([str(binary), "serve", "--state", str(restored), "--bundle", str(bundle), "--no-open"], stdout=log, stderr=log)
             rc = wait_control(restored, "control.json", process)
             try:
-                for _ in range(int(os.environ.get("CARE_SMOKE_POLLS", "120"))):
-                    try:
-                        s = json.loads(request(rc["URL"] + "/control/status", rc["Token"]))
-                        if s["healthy"]:
-                            break
-                    except urllib.error.URLError:
-                        pass
-                    time.sleep(2)
+                s = wait_healthy(rc, restored, process, "/control/status")
                 assert s["healthy"] and s["configured"]
                 request("http://127.0.0.1:8484/api/v1/auth/login/", data=admin)
                 print("PASS: encrypted backup → restore → same-admin login", flush=True)
