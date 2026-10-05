@@ -185,7 +185,8 @@ tag. Native wheels retain their bundled-library RPATHs.
 The **Build CARE Anywhere alpha** GitHub Actions workflow builds both Linux
 architectures, the reused desktop frontend and local onboarding plugin, the
 Apple Silicon DMG, Linux AppImages, and Windows x86_64 offline `.exe` installer.
-Pushes to `release/alpha` or manual dispatch start it. Download `macos-arm64`,
+Pushes to `main` or manual dispatch start a complete build. Pull requests run
+the fast Go/UI/release-validator checks. Download `macos-arm64`,
 `linux-amd64`, `linux-arm64`, or `windows-amd64` from the run's artifacts. No local Nix
 builder or artifact upload from a developer laptop is required. Nix and npm caches
 speed subsequent runs; large appliance payloads are compressed once between jobs.
@@ -197,10 +198,39 @@ There is no automatic fallback to TCG on user machines. Windows WHPX and ARM64
 Linux KVM hardware acceptance remain required outside hosted CI.
 GitHub's ARM macOS runners do not support nested virtualization, so macOS CI
 checks packaging/signatures; the downloaded build still needs a local boot check.
-Manual dispatch with `publish_release=true` publishes a new `alpha-N` only after
-all package/test jobs succeed, targeting that run's exact commit. Every asset has
-a SHA-256 sidecar verified before publication. Builds and compilation-based tests
-for release work run in CI, not on developer laptops.
+Build and publication are separate workflows. `VERSION` holds the base version;
+each build derives `<base>-alpha.<build run number>` for all four package filenames
+and the release tag `v<base>-alpha.<build run number>`. Rerunning failed jobs keeps
+the same version and reuses that run's appliance/interface artifacts. The package
+version does not change the guest manifest's data-compatibility identifier.
+
+After all build jobs succeed, dispatch **Publish CARE Anywhere alpha** on `main`
+with the build run ID. It verifies the source workflow, branch, commit's version,
+acceptance jobs, exact four packages and eight SHA-256 digests (including sidecars).
+All packages must come from one successful run; cross-run diagnostic artifacts
+cannot be promoted. Release notes come from the tested commit, with version and
+build provenance filled in automatically.
+
+```sh
+# Build on GitHub Actions (or push to main):
+gh workflow run alpha.yml --ref main
+# Retry only failed jobs of that build, without rebuilding successful platforms:
+gh run rerun <build-run-id> --failed
+# Prepare a complete draft, without rebuilding:
+gh workflow run release.yml --ref main -f build_run_id=<build-run-id>
+# Publish, or resume a partially uploaded draft:
+gh workflow run release.yml --ref main -f build_run_id=<build-run-id> -f publish=true
+```
+
+The publisher creates the tag at the tested SHA and uploads into a draft, then
+checks GitHub's uploaded-asset digests before publication. Retries skip identical
+assets and refuse conflicting assets/tags or modifications to published releases.
+Artifacts expire after 14 days: publish within that window or start a new build.
+The workflow uses `contents: write` and `actions: read`. If repository policy blocks
+tag creation for commits changing workflows, an authorized maintainer can create
+the exact lightweight tag at the tested SHA and retry; the workflow never retargets
+an existing tag or requests broader credentials. No personal token is stored in CI.
+Builds and compilation-based tests for release work run in CI, not on developer laptops.
 
 `npm --prefix frontend run test:ui` checks the reused setup/control screens against
 the appliance HTTP contract (install Playwright Chromium first). These focused

@@ -9,9 +9,10 @@ import plistlib
 import shutil
 import subprocess
 from runtime import stage_runtime, download
+from release import package_version
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "0.1.0-alpha.2"
+VERSION = package_version(os.environ.get("CARE_RELEASE_VERSION", (ROOT / "VERSION").read_text().strip() + "-dev"))
 
 
 def run(*args, **kwargs):
@@ -63,8 +64,8 @@ def main():
         run("go", "build", "-trimpath", "-o", str(exe), ".", cwd=ROOT)
         (contents / "Info.plist").write_bytes(plistlib.dumps({
             "CFBundleName": "CARE Anywhere", "CFBundleDisplayName": "CARE Anywhere",
-            "CFBundleIdentifier": "network.ohc.care-anywhere", "CFBundleVersion": "1",
-            "CFBundleShortVersionString": "0.1.0", "CFBundleExecutable": "care-anywhere",
+            "CFBundleIdentifier": "network.ohc.care-anywhere", "CFBundleVersion": os.environ.get("GITHUB_RUN_NUMBER", "1"),
+            "CFBundleShortVersionString": VERSION.split("-")[0], "CFBundleExecutable": "care-anywhere",
             "CFBundlePackageType": "APPL", "LSMinimumSystemVersion": "13.0",
             "LSUIElement": True, "NSHighResolutionCapable": True,
             "CFBundleIconFile": "AppIcon", "LSApplicationCategoryType": "public.app-category.medical",

@@ -2,21 +2,10 @@ name: Build CARE Anywhere alpha
 
 on:
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: 'Publish a GitHub prerelease from this run (requires manual dispatch; never runs on a plain push)'
-        type: boolean
-        default: false
-      windows_from_run:
-        description: 'Windows diagnostics only: reuse appliance/interfaces from this run ID; never publishes'
-        type: string
-        default: ''
-      publish_tested:
-        description: 'Publish verified alpha-22 artifacts without rebuilding'
-        type: boolean
-        default: false
   push:
-    branches: [release/alpha]
+    branches: [main]
+    paths-ignore: ['**/*.md']
+  pull_request:
     paths-ignore: ['**/*.md']
 
 permissions:
@@ -24,22 +13,19 @@ permissions:
   actions: read
 
 concurrency:
-  group: alpha-${{ github.ref }}
+  group: alpha-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish-tested:
-    if: inputs.publish_tested
-    permissions:
-      actions: read
-      contents: write
-    uses: ./.github/workflows/publish-tested.yml
-
   checks:
-    if: inputs.windows_from_run == '' && !inputs.publish_tested
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assign immutable build version
+        id: version
+        run: python3 scripts/release.py version --number "$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -57,6 +43,8 @@ jobs:
       - run: npm --prefix frontend ci --ignore-scripts
       - name: Check smoke test HTTP diagnostics
         run: python scripts/test-smoke.py
+      - name: Test release validation and retry safety
+        run: python -m unittest discover -s scripts -p 'test_release.py'
       - run: npm --prefix frontend run build
       - name: Test reused UI against appliance adapter
         working-directory: frontend
@@ -70,11 +58,17 @@ jobs:
         with:
           name: offline-interfaces
           path: interfaces.tar.gz
+          if-no-files-found: error
+          overwrite: true
           compression-level: 0
           retention-days: 14
 
   appliance:
+    if: github.event_name != 'pull_request'
     needs: checks
+    name: appliance-${{ matrix.arch }}
+    env:
+      CARE_RELEASE_VERSION: ${{ needs.checks.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -128,6 +122,8 @@ jobs:
         with:
           name: appliance-${{ matrix.arch }}
           path: dist/appliance.tar.gz
+          if-no-files-found: error
+          overwrite: true
           compression-level: 0
           retention-days: 14
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -162,12 +158,15 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-${{ matrix.arch }}-diagnostics
+          overwrite: true
           path: |
             dist/ci-smoke/*.log
             dist/ci-smoke-restored/*.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-${{ matrix.arch }}
+          if-no-files-found: error
+          overwrite: true
           path: |
             dist/releases/*.AppImage
             dist/releases/*.sha256
@@ -175,8 +174,9 @@ jobs:
           retention-days: 14
 
   macos:
-    if: inputs.windows_from_run == ''
     needs: [checks, appliance]
+    env:
+      CARE_RELEASE_VERSION: ${{ needs.checks.outputs.version }}
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -209,6 +209,8 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-arm64
+          if-no-files-found: error
+          overwrite: true
           path: |
             dist/releases/*.dmg
             dist/releases/*.sha256
@@ -216,11 +218,11 @@ jobs:
           retention-days: 14
 
   windows:
-    if: always() && !cancelled() && !inputs.publish_tested && (needs.appliance.result == 'success' || inputs.windows_from_run != '')
     needs: [checks, appliance]
     runs-on: windows-2025
     timeout-minutes: 180
     env:
+      CARE_RELEASE_VERSION: ${{ needs.checks.outputs.version }}
       PYTHONUTF8: '1'
       PYTHONIOENCODING: utf-8
     steps:
@@ -241,13 +243,9 @@ jobs:
         with:
           name: appliance-amd64
           path: dist
-          run-id: ${{ inputs.windows_from_run || github.run_id }}
-          github-token: ${{ github.token }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: offline-interfaces
-          run-id: ${{ inputs.windows_from_run || github.run_id }}
-          github-token: ${{ github.token }}
       - name: Unpack appliance and interfaces
         run: |
           New-Item -ItemType Directory dist/bundle
@@ -277,52 +275,17 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-diagnostics
+          overwrite: true
           path: |
             dist/ci-smoke/*.log
             dist/ci-smoke-restored/*.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-amd64
+          if-no-files-found: error
+          overwrite: true
           path: |
             dist/releases/*windows-amd64.exe
             dist/releases/*.sha256
           compression-level: 0
           retention-days: 14
-
-  release:
-    needs: [appliance, macos, windows]
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && inputs.windows_from_run == ''
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: 'linux-*'
-          path: assets
-          merge-multiple: true
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: macos-arm64
-          path: assets
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: windows-amd64
-          path: assets
-      - name: Verify every asset checksum before publishing
-        working-directory: assets
-        run: |
-          ls -la
-          for sha in *.sha256; do shasum -a 256 -c "$sha"; done
-      - name: Create prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: alpha-${{ github.run_number }}
-        run: |
-          gh release create "$TAG" assets/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "CARE Anywhere 0.1.0-alpha.2 — macOS, Linux & Windows (build ${{ github.run_number }})" \
-            --notes-file .github/release-notes.md \
-            --prerelease

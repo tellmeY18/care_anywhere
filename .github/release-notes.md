@@ -9,10 +9,10 @@ installed QEMU required. **Early alpha: use test records.**
 
 | Platform | Download | Start |
 | --- | --- | --- |
-| macOS 13+ Apple Silicon | `CARE-Anywhere-0.1.0-alpha.2-macos-arm64.dmg` | Drag to Applications, eject, open CARE Anywhere |
-| Linux x86_64 | `CARE-Anywhere-0.1.0-alpha.2-linux-amd64.AppImage` | Mark executable, then open |
-| Linux ARM64 | `CARE-Anywhere-0.1.0-alpha.2-linux-arm64.AppImage` | Mark executable, then open |
-| Windows 10/11 x86_64 | `CARE-Anywhere-0.1.0-alpha.2-windows-amd64.exe` | Run installer, open CARE Anywhere from Start |
+| macOS 13+ Apple Silicon | `CARE-Anywhere-{{VERSION}}-macos-arm64.dmg` | Drag to Applications, eject, open CARE Anywhere |
+| Linux x86_64 | `CARE-Anywhere-{{VERSION}}-linux-amd64.AppImage` | Mark executable, then open |
+| Linux ARM64 | `CARE-Anywhere-{{VERSION}}-linux-arm64.AppImage` | Mark executable, then open |
+| Windows 10/11 x86_64 | `CARE-Anywhere-{{VERSION}}-windows-amd64.exe` | Run installer, open CARE Anywhere from Start |
 
 Allow **8 GB RAM and 22 GB free disk**, plus temporary installation/extraction and
 backup space. First preparation copies an 8 GiB data disk and runs migrations;
@@ -46,18 +46,6 @@ Closing the browser keeps CARE running. Use **Stop** or **Quit CARE Anywhere**.
 
 ## Verification and limits
 
-### Alpha-22 provenance
-
-- Linux x86_64 KVM boot/setup/restart/backup/restore, Linux ARM64 packaging, and
-  macOS packaging passed in [run 21](https://github.com/tellmeY18/care_anywhere/actions/runs/37350309132)
-  at `c39ec3f2ffa2e8ee01996c26edb9bf17311b6018`.
-- The installed Windows package passed boot/setup/restart/backup/restore and
-  clean shutdown under TCG in [run 22](https://github.com/tellmeY18/care_anywhere/actions/runs/37360309843)
-  at `e8c7742adfb30618f318529db4debc5e098dabed`, using run 21's appliance.
-- Between those commits only smoke-test output and CI text encoding changed.
-  These are the tested artifacts, republished without rebuilding. Run 21's Windows
-  test failed while printing its success message; run 22 verifies the corrected test.
-
 Publication requires Go/UI checks, every platform package, Linux x86_64 QEMU/KVM
 boot/setup/login/restart/encrypted-backup/restore acceptance, and the installed
 Windows package's equivalent real-guest test using explicit **TCG** software
@@ -69,7 +57,7 @@ TCG is an explicit CI/debug option, never an automatic user fallback.
 Each download has a `.sha256` sidecar. For example:
 
 ```sh
-shasum -a 256 -c CARE-Anywhere-0.1.0-alpha.2-linux-amd64.AppImage.sha256
+shasum -a 256 -c CARE-Anywhere-{{VERSION}}-linux-amd64.AppImage.sha256
 ```
 
 No supported in-place updates, LAN access, scheduled backups, recovery codes or
@@ -77,4 +65,4 @@ cross-architecture restore. Preserve both backup `.age` and `.key` files, with
 the key stored separately. Stop CARE and back up before testing a new alpha.
 Uninstalling preserves clinic data (`%APPDATA%\care-anywhere` on Windows).
 
-[Architecture, CLI and build documentation](https://github.com/tellmeY18/care_anywhere/blob/release/alpha/README.md).
+[Architecture, CLI and build documentation](https://github.com/tellmeY18/care_anywhere/blob/main/README.md).
