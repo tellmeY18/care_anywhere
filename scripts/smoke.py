@@ -60,6 +60,13 @@ def wait_healthy(c, state, process, path="/status"):
                     with p.open("rb") as f:
                         f.seek(max(0, p.stat().st_size - 4096))
                         print(f.read().decode(errors="replace"), flush=True)
+            try:
+                cc = json.loads((state / "control.json").read_text())
+                journal = request(cc["URL"] + "/control/logs", cc["Token"], timeout=15).decode(errors="replace")
+                (state / "guest-services.log").write_text(journal, encoding="utf-8")
+                print("Guest service journal:\n" + journal, flush=True)
+            except (OSError, ValueError) as e:
+                print(f"Guest journal unavailable: {e}", flush=True)
             report = time.monotonic() + 60
         if s.get("phase") == "error":
             raise RuntimeError(request(c["URL"] + "/logs", c["Token"], timeout=10).decode())

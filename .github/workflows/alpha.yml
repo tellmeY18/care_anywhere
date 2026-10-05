@@ -247,6 +247,7 @@ jobs:
       - name: Install and boot the actual Windows package
         env:
           CARE_QEMU_ACCEL: tcg
+          CARE_GUEST_DEBUG: '1'
           CARE_SMOKE_BOOT_SECONDS: '1200'
         run: |
           $installer = (Get-ChildItem dist/releases/*windows-amd64.exe).FullName

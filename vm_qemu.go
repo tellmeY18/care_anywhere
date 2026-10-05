@@ -94,6 +94,14 @@ func bootVM(bundle, state string, m manifest) (machine, error) {
 		network += ",restrict=on"
 	}
 	args = append(args, "-netdev", network)
+	if os.Getenv("CARE_GUEST_DEBUG") == "1" {
+		for i := range args {
+			if args[i] == "-append" {
+				args[i+1] += " systemd.journald.forward_to_console=1"
+				break
+			}
+		}
+	}
 	cmd := exec.Command(filepath.Join(runtimeDir, name), args...)
 	if err = prepareQEMU(cmd); err != nil {
 		return nil, err
