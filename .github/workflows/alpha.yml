@@ -106,7 +106,7 @@ jobs:
           # registry fetch, interrupted download) reuses every derivation that
           # already succeeded and only redoes the one that failed.
           attempt=1
-          until bundle=$(nix build ".#packages.$SYSTEM.bundle" --no-link --print-out-paths); do
+          until bundle=$(nix build ".#packages.$SYSTEM.bundle" --no-update-lock-file --no-link --print-out-paths); do
             attempt=$((attempt + 1))
             if [ "$attempt" -gt 3 ]; then
               echo "::error::nix build failed after 3 attempts" >&2

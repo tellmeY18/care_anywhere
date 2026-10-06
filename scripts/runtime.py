@@ -22,7 +22,7 @@ def stage_runtime(dest, arch):
     if os.name == "nt":
         installer = dest.parent / "qemu-setup.exe"
         download("https://qemu.weilnetz.de/w64/2026/qemu-w64-setup-20260811.exe", installer,
-                 "f37d9ee8f498879b7ca92a9959d30ce7971f9894f584de574f2ac6f5ba925a7265e9d8556d0f56bc75e4e384fc7cac6baed78a89c2e42cdbef109724f01ec16c", "sha512")
+                 "5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543", "sha512")
         subprocess.run(["7z", "x", str(installer), "-o" + str(dest), "-y"], check=True)
         installer.unlink()
         # QEMU's Windows distribution keeps firmware at its top level.

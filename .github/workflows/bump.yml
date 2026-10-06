@@ -1,65 +1,35 @@
-name: Bump dependencies
+name: Refresh dependency locks
 
-# All network/CPU-heavy dependency refresh work runs here, never locally.
+# Resolve the targets declared in flake.nix/go.mod on CI. Review the resulting
+# patch before committing; never auto-accept a failed content checksum.
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  bump:
+  locks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          extra_nix_config: |
-            max-jobs = 2
-            cores = 2
-
-      - name: Go modules
+      - name: Resolve declared dependencies
         run: |
-          go get -u ./...
+          nix flake lock
           go mod tidy
-          go vet ./...
-          go test -race ./...
-
-      - name: Windows QEMU sha512
-        run: |
-          url=$(grep -o 'https://qemu.weilnetz.de[^"]*\.exe' scripts/runtime.py)
-          old=$(grep -o '"[0-9a-f]\{128\}"' scripts/runtime.py | tr -d '"')
-          new=$(curl -fsSL "$url" | sha512sum | cut -d' ' -f1)
-          sed -i "s/$old/$new/" scripts/runtime.py
-
-      - name: Flake lock
-        run: nix flake update
-
-      - name: Fix Nix fixed-output hashes (vendorHash, npmDepsHash)
-        run: |
-          for i in 1 2 3 4; do
-            if nix build --no-link .#packages.x86_64-linux.bundle 2> build.log; then ok=1; break; fi
-            old=$(grep -o 'specified: *sha256-[A-Za-z0-9+/=]*' build.log | head -1 | awk '{print $2}')
-            new=$(grep -o 'got: *sha256-[A-Za-z0-9+/=]*' build.log | head -1 | awk '{print $2}')
-            if [ -z "$old" ] || [ -z "$new" ]; then cat build.log; exit 1; fi
-            grep -rl --include=*.nix -F "$old" nix | xargs sed -i "s|$old|$new|"
-          done
-          [ "${ok:-0}" = 1 ] || { cat build.log; exit 1; }
-
-      - name: Open PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          b="bump/deps-$(date +%Y%m%d-%H%M)"
-          git checkout -b "$b"
-          git add -A -- . ':!build.log'
-          git commit -m "Bump dependencies"
-          git push origin "$b"
-          gh pr create --fill --head "$b"
+          git diff -- flake.lock go.mod go.sum > dependency-locks.patch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-locks
+          path: |
+            dependency-locks.patch
+            flake.lock
+            go.mod
+            go.sum
+          if-no-files-found: error
+          retention-days: 14
