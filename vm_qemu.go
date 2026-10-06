@@ -89,14 +89,8 @@ func bootVM(bundle, state string, m manifest) (machine, error) {
 		"-kernel", filepath.Join(bundle, m.Kernel), "-initrd", filepath.Join(bundle, m.Initrd),
 		"-append", "console=" + console + " panic=1 init=" + m.System + "/init",
 		"-fw_cfg", "name=opt/care/tls,file=" + qemuEscape(secret),
-		"-drive", "file=" + qemuEscape(filepath.Join(bundle, "system.img")) + ",format=raw,if=virtio,readonly=on,serial=care-base",
-		"-drive", "file=" + qemuEscape(filepath.Join(state, "data.img")) + ",format=raw,if=virtio,serial=care-data,discard=unmap",
 		"-device", "virtio-net-pci,netdev=net0"}
-	if m.Format == 2 {
-		for _, layer := range []string{"runtime", "app"} {
-			args = append(args, "-drive", "file="+qemuEscape(filepath.Join(bundle, layer+".img"))+",format=raw,if=virtio,readonly=on,serial=care-"+layer)
-		}
-	}
+	args = append(args, qemuDiskArgs(bundle, state, m.Format)...)
 	network := "user,id=net0,hostfwd=tcp:127.0.0.1:" + port + "-:8080"
 	if os.Getenv("CARE_NO_NETWORK") == "1" {
 		network += ",restrict=on"
@@ -126,6 +120,27 @@ func bootVM(bundle, state string, m manifest) (machine, error) {
 	v := &qemuVM{done: make(chan struct{}), address: address, tls: config}
 	go func() { cmd.Wait(); output.Close(); os.Remove(secret); close(v.done) }()
 	return v, nil
+}
+
+func qemuDiskArgs(bundle, state string, format int) []string {
+	disks := []struct {
+		id, path, options string
+	}{
+		{"base", filepath.Join(bundle, "system.img"), ",readonly=on"},
+		{"data", filepath.Join(state, "data.img"), ",discard=unmap"},
+	}
+	if format == 2 {
+		for _, layer := range []string{"runtime", "app"} {
+			disks = append(disks, struct{ id, path, options string }{layer, filepath.Join(bundle, layer+".img"), ",readonly=on"})
+		}
+	}
+	var args []string
+	for _, disk := range disks {
+		args = append(args,
+			"-drive", "file="+qemuEscape(disk.path)+",format=raw,if=none,id=care-"+disk.id+disk.options,
+			"-device", "virtio-blk-pci,drive=care-"+disk.id+",serial=care-"+disk.id)
+	}
+	return args
 }
 
 func qemuEscape(s string) string        { return strings.ReplaceAll(s, ",", ",,") }
