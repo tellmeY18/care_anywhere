@@ -317,6 +317,8 @@ python3 scripts/smoke.py --binary dist/care-anywhere-alpha --bundle dist \
 ## Layered updates (0.2 alpha)
 
 See [OTA.md](OTA.md) for the implemented contracts, CLI and first-beta gates.
+The app's Caddy fragment is parsed with the complete server configuration during
+the Nix build. Guest diagnostics include Caddy and object-store startup failures.
 `update-fetch` downloads HTTPS images without activating them. `update-stage
 --trust-local` stages a verified local bundle while stopped; next start creates a
 cold snapshot and switches to state-owned layers. `update-status` reports pending

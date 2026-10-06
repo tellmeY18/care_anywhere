@@ -44,7 +44,7 @@ func guestMain() error {
 			http.Error(w, "method", 405)
 			return
 		}
-		cmd := exec.CommandContext(r.Context(), "journalctl", "--no-pager", "-n", "100", "-u", "care-init", "-u", "care-api", "-u", "care-worker", "-u", "care-beat")
+		cmd := exec.CommandContext(r.Context(), "journalctl", "--no-pager", "-n", "200", "-u", "care-init", "-u", "care-api", "-u", "care-worker", "-u", "care-beat", "-u", "caddy", "-u", "care-buckets", "-u", "minio")
 		cmd.Stdout = w
 		cmd.Stderr = w
 		_ = cmd.Run()

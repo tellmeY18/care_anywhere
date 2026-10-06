@@ -61,11 +61,21 @@ let
     (command "admin-reset" ''exec ${python}/bin/python -c 'import json,sys,django; django.setup(); from django.contrib.auth import get_user_model; d=json.load(sys.stdin); U=get_user_model(); u=U.objects.get(username=d["Username"],is_superuser=True); u.set_password(d["Password"]); u.save()' '')
   ];
   caddy = pkgs.writeText "care-caddy" ''
-    handle /api/* { reverse_proxy 127.0.0.1:9000 }
-    handle /ping/* { reverse_proxy 127.0.0.1:9000 }
-    handle /static/* { reverse_proxy 127.0.0.1:9000 }
-    handle /patient-bucket/* { reverse_proxy 127.0.0.1:9100 }
-    handle /facility-bucket/* { reverse_proxy 127.0.0.1:9100 }
+    handle /api/* {
+      reverse_proxy 127.0.0.1:9000
+    }
+    handle /ping/* {
+      reverse_proxy 127.0.0.1:9000
+    }
+    handle /static/* {
+      reverse_proxy 127.0.0.1:9000
+    }
+    handle /patient-bucket/* {
+      reverse_proxy 127.0.0.1:9100
+    }
+    handle /facility-bucket/* {
+      reverse_proxy 127.0.0.1:9100
+    }
     handle {
       root * ${web}
       try_files {path} /index.html
@@ -78,6 +88,12 @@ in
   app = pkgs.symlinkJoin {
     name = "care-app";
     paths = scripts;
-    postBuild = ''ln -s ${caddy} $out/Caddyfile'';
+    postBuild = ''
+      ln -s ${caddy} $out/Caddyfile
+      # Imported fragments bypass the base module's Caddy formatter. Parse the
+      # complete configuration during the build so bad imports cannot ship.
+      printf 'http://127.0.0.1:8081 {\n import %s\n}\n' ${caddy} > check.Caddyfile
+      ${pkgs.caddy}/bin/caddy adapt --config check.Caddyfile --adapter caddyfile > /dev/null
+    '';
   };
 }
