@@ -4,6 +4,13 @@ let
   baseClosure = pkgs.closureInfo { rootPaths = [ cfg.system.build.toplevel ]; };
   runtimeClosure = pkgs.closureInfo { rootPaths = [ cfg.system.build.careRuntime ]; };
   appClosure = pkgs.closureInfo { rootPaths = [ cfg.system.build.careApp ]; };
+  runtimeImage = pkgs.runCommand "care-runtime.erofs" { nativeBuildInputs = [ pkgs.erofs-utils ]; } ''
+    sort ${baseClosure}/store-paths > base-paths
+    sort ${runtimeClosure}/store-paths > runtime-paths
+    mkdir store
+    for path in $(comm -23 runtime-paths base-paths); do cp -a "$path" store/; done
+    mkfs.erofs -zlz4hc -Eztailpacking -Efragments -Ededupe -T 0 -U 11111111-1111-4111-8111-111111111111 --all-root -L care-runtime $out store
+  '';
 in
 pkgs.runCommand "care-anywhere-bundle" { nativeBuildInputs = [ pkgs.e2fsprogs pkgs.erofs-utils pkgs.python3 ]; } ''
   mkdir -p $out
@@ -17,13 +24,12 @@ pkgs.runCommand "care-anywhere-bundle" { nativeBuildInputs = [ pkgs.e2fsprogs pk
   sort ${baseClosure}/store-paths > base-paths
   sort ${runtimeClosure}/store-paths > runtime-paths
   sort ${appClosure}/store-paths > app-paths
-  mkdir runtime app
-  for path in $(comm -23 runtime-paths base-paths); do cp -a "$path" runtime/; done
+  mkdir app
   sort -u base-paths runtime-paths > shared-paths
   for path in $(comm -23 app-paths shared-paths); do cp -a "$path" app/; done
   ln -s ${cfg.system.build.careApp} app/entry
-  mkfs.erofs -zlz4hc -Eztailpacking -Efragments -Ededupe -T 0 --all-root -L care-runtime $out/runtime.img runtime
-  mkfs.erofs -zlz4hc -Eztailpacking -Efragments -Ededupe -T 0 --all-root -L care-app $out/app.img app
+  cp ${runtimeImage} $out/runtime.img
+  mkfs.erofs -zlz4hc -Eztailpacking -Efragments -Ededupe -T 0 -U 22222222-2222-4222-8222-222222222222 --all-root -L care-app $out/app.img app
   export OUT=$out
   python - <<'PY'
   import os,json,hashlib,pathlib

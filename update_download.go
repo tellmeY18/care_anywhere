@@ -95,7 +95,7 @@ func fetchUpdate(state, address string) error {
 		if e != nil {
 			return e
 		}
-		asset := u.ResolveReference(&url.URL{Path: name})
+		asset := u.ResolveReference(&url.URL{Path: m.Arch + "-" + name})
 		r, e := client.Get(asset.String())
 		if e == nil && r.StatusCode != 200 {
 			e = fmt.Errorf("layer download: %s", r.Status)

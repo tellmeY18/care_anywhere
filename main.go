@@ -201,6 +201,9 @@ func serve(state, bundle string, port int, noOpen bool) error {
 	if !compatibleData(release, m) {
 		return errors.New("this data belongs to a different release; in-place upgrades are not implemented")
 	}
+	if m.Format == 2 && bundleID(release) != bundleID(m) {
+		return errors.New("bundle changed; use update-stage --trust-local so a recovery snapshot precedes activation")
+	}
 	machine, err := bootVM(bundle, state, m)
 	if err != nil {
 		return err

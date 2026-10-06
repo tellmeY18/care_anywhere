@@ -209,7 +209,8 @@ version does not change the guest manifest's data-compatibility identifier.
 
 After all build jobs succeed, dispatch **Publish CARE Anywhere alpha** on `main`
 with the build run ID. It verifies the source workflow, branch, commit's version,
-acceptance jobs, exact four packages and eight SHA-256 digests (including sidecars).
+acceptance jobs, exact four packages, both sets of standalone OTA images/manifests
+and all checksum sidecars. OTA hashes must match their architecture's manifest.
 All packages must come from one successful run; cross-run diagnostic artifacts
 cannot be promoted. Release notes come from the tested commit, with version and
 build provenance filled in automatically.

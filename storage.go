@@ -158,6 +158,9 @@ func backup(state, file string) error {
 		return e
 	}
 	defer unlock()
+	if _, e = os.Lstat(filepath.Join(state, "update.json")); !os.IsNotExist(e) {
+		return errors.New("update is unconfirmed; recover the pre-update snapshot before backing up")
+	}
 	id, e := age.GenerateX25519Identity()
 	if e != nil {
 		return e

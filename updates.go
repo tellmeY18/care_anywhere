@@ -95,14 +95,48 @@ func recoverUpdate(state, destination string) error {
 	if filepath.Dir(snapshot) != filepath.Join(state, "snapshots") || filepath.Base(snapshot) == "." {
 		return errors.New("invalid recovery snapshot path")
 	}
+	info, err := os.Lstat(snapshot)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("snapshot must be a real directory")
+	}
+	for _, name := range []string{"release.json", "data.img"} {
+		info, err := os.Lstat(filepath.Join(snapshot, name))
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return errors.New("invalid snapshot member")
+		}
+	}
 	// Mkdir, not MkdirAll: a pre-existing destination is never accepted.
 	if err = os.Mkdir(destination, 0700); err != nil {
 		return err
 	}
-	for _, name := range []string{"release.json", "data.img"} {
-		if err = snapshotDisk(filepath.Join(snapshot, name), filepath.Join(destination, name)); err != nil {
-			return err
-		}
+	unlockDestination, err := lockState(destination)
+	if err != nil {
+		return err
+	}
+	defer unlockDestination()
+	stage, err := os.MkdirTemp(destination, "recover-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	if err = snapshotDisk(filepath.Join(snapshot, "data.img"), filepath.Join(stage, "data.img")); err != nil {
+		return err
+	}
+	m, err := readManifest(filepath.Join(snapshot, "release.json"))
+	if err != nil {
+		return err
+	}
+	if err = saveJSON(filepath.Join(destination, "release.json"), m); err != nil {
+		return err
+	}
+	if err = os.Rename(filepath.Join(stage, "data.img"), filepath.Join(destination, "data.img")); err != nil {
+		return err
 	}
 	if err = atomicfile.SyncDir(destination); err != nil {
 		return err
@@ -173,7 +207,10 @@ func stageUpdate(state, source string) error {
 		active, _ := readPointer(state, "current")
 		var current manifest
 		if active != "" {
-			current, _ = verifyBundle(active)
+			verified, e := verifyBundle(active)
+			if e == nil {
+				current = verified
+			}
 		}
 		for name, digest := range m.Files {
 			out := filepath.Join(stage, name)

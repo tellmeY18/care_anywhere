@@ -35,7 +35,7 @@ that clinic into 0.2. Do not replace its `release.json` to bypass this guard.
 
 ```sh
 # Fetch into state/downloads; this never activates or establishes publisher trust.
-care-anywhere update-fetch --state /clinic --url https://publisher/path/manifest.json
+care-anywhere update-fetch --state /clinic --url https://publisher/path/arm64-manifest.json
 
 # Stop CARE, independently verify the source, then opt in to this unsigned alpha.
 care-anywhere update-stage --state /clinic --bundle /trusted/download --trust-local
@@ -43,13 +43,14 @@ care-anywhere update-status --state /clinic
 # Start normally: the installed app uses the state-owned layer set automatically.
 ```
 
-The manifest and its named images must be sibling HTTPS objects. Redirects must
+The manifest and architecture-prefixed images (`arm64-app.img`, etc.) must be sibling HTTPS objects. Redirects must
 stay HTTPS. Downloads have bounded sizes, known lengths and free-space checks.
 Completed files are hash-checked and reused after interruption; partial file
 range resumption is not implemented. A crash-retained `.part` file must be
 removed explicitly before retry. The active state-owned layer set can supply
 unchanged files without network traffic. CI appliance artifacts contain all
-images; alpha GitHub Releases publish desktop installers, not a signed channel.
+images; alpha GitHub Releases publish desktop installers and independently
+downloadable per-architecture images with hash sidecars, not a signed channel.
 
 Staging takes the clinic lock and requires it to be stopped in this alpha.
 Verified files are copied into `layers/<manifest-hash>/`; existing verified

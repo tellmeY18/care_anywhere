@@ -1,10 +1,11 @@
 """Release trust boundaries and interrupted-upload retry checks (stdlib only)."""
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
 
-from release import PLATFORMS, REQUIRED_JOBS, missing_assets, package_version, validate_build, verify_assets
+from release import PLATFORMS, REQUIRED_JOBS, OTA_FILES, missing_assets, package_version, validate_build, verify_assets
 
 
 class ReleaseTests(unittest.TestCase):
@@ -51,3 +52,23 @@ class ReleaseTests(unittest.TestCase):
         for value in ("../escape", "0.1.0-alpha.0", "0.1.0-alpha.1\n", "0.1.0;exit"):
             with self.assertRaises(ValueError):
                 package_version(value)
+
+    def test_layered_release_checks_manifest_binding(self):
+        version = "0.2.0-alpha.1"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            names = [f"CARE-Anywhere-{version}-{p}.{ext}" for p, ext in PLATFORMS.items()]
+            names += [f"{arch}-{name}" for arch in ("amd64", "arm64") for name in OTA_FILES]
+            for name in names:
+                (root / name).write_bytes(b"payload")
+            for arch in ("amd64", "arm64"):
+                manifest = dict(format=2, arch=arch, files={name: hashlib.sha256(b"payload").hexdigest() for name in OTA_FILES if name != "manifest.json"})
+                (root / f"{arch}-manifest.json").write_text(json.dumps(manifest))
+            for name in names:
+                digest = hashlib.sha256((root / name).read_bytes()).hexdigest()
+                (root / (name + ".sha256")).write_text(digest + "  " + name + "\n")
+            self.assertEqual(len(verify_assets(root, version)), 36)
+            (root / "arm64-app.img").write_bytes(b"wrong layer")
+            (root / "arm64-app.img.sha256").write_text(hashlib.sha256(b"wrong layer").hexdigest() + "  arm64-app.img\n")
+            with self.assertRaises(ValueError):
+                verify_assets(root, version)

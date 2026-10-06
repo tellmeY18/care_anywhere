@@ -39,6 +39,8 @@ Closing the browser keeps CARE running. Use **Stop** or **Quit CARE Anywhere**.
 - Download-only HTTPS update fetching, explicit trusted-local staging, activation
   on restart, cold pre-update snapshots, health confirmation and recovery into a
   new state directory. Signing/automatic activation remains gated for beta.
+- `arm64-*` and `amd64-*` assets are standalone update layers, not installers.
+  Their manifests support `update-fetch`; see [OTA instructions](https://github.com/tellmeY18/care_anywhere/blob/main/OTA.md).
 - Removed PostgreSQL JIT/LLVM and Python bytecode overhead; stripped launchers,
   LZMA DMGs and only the required Windows QEMU target executable.
 - **Format boundary:** this layered alpha refuses 0.1 preview data. Keep the old

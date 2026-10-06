@@ -14,6 +14,7 @@ PLATFORMS = {
     "linux-amd64": "AppImage", "linux-arm64": "AppImage",
     "macos-arm64": "dmg", "windows-amd64": "exe",
 }
+OTA_FILES = ["manifest.json", "kernel", "initrd", "system.img", "runtime.img", "app.img", "data.img"]
 REQUIRED_JOBS = {"checks", "appliance-amd64", "appliance-arm64", "macos", "windows"}
 
 
@@ -55,9 +56,11 @@ def validate_build(run, jobs):
 
 def verify_assets(directory, version):
     names = {f"CARE-Anywhere-{version}-{platform}.{extension}" for platform, extension in PLATFORMS.items()}
+    if not version.startswith("0.1."):
+        names |= {f"{arch}-{name}" for arch in ("amd64", "arm64") for name in OTA_FILES}
     expected = names | {name + ".sha256" for name in names}
     if {p.name for p in directory.iterdir()} != expected:
-        raise ValueError("Release must contain exactly four packages and their checksum sidecars")
+        raise ValueError("Release must contain the exact platform packages, OTA layers and checksum sidecars")
     digests = {}
     for name in sorted(expected):
         path = directory / name
@@ -69,6 +72,14 @@ def verify_assets(directory, version):
         digest, filename = (directory / (name + ".sha256")).read_text().split()
         if filename != name or "sha256:" + digest != digests[name]:
             raise ValueError(f"Release checksum mismatch: {name}")
+    if not version.startswith("0.1."):
+        for arch in ("amd64", "arm64"):
+            manifest = json.loads((directory / f"{arch}-manifest.json").read_text())
+            if manifest.get("format") != 2 or manifest.get("arch") != arch or set(manifest["files"]) != set(OTA_FILES) - {"manifest.json"}:
+                raise ValueError("Invalid OTA manifest")
+            for name, digest in manifest["files"].items():
+                if digests[f"{arch}-{name}"] != "sha256:" + digest:
+                    raise ValueError("OTA layer does not match its manifest")
     return digests
 
 
@@ -100,14 +111,17 @@ def publish(run_id):
     version = package_version(f"{base}-alpha.{run['run_number']}")
     tag = "v" + version
     artifacts = pages(f"actions/runs/{run_id}/artifacts", "artifacts")
-    for platform in PLATFORMS:
+    artifact_names = list(PLATFORMS)
+    if not version.startswith("0.1."):
+        artifact_names += ["ota-amd64", "ota-arm64"]
+    for platform in artifact_names:
         matches = [a for a in artifacts if a["name"] == platform and not a["expired"]]
         if len(matches) != 1:
             raise ValueError(f"Missing, expired or ambiguous artifact: {platform}")
     with tempfile.TemporaryDirectory() as tmp:
         directory = Path(tmp) / "assets"
         directory.mkdir()
-        for platform in PLATFORMS:
+        for platform in artifact_names:
             subprocess.run(["gh", "run", "download", run_id, "--repo", repo, "--name", platform, "--dir", str(directory)], check=True)
         digests = verify_assets(directory, version)
         template = gh("api", f"repos/{repo}/contents/.github/release-notes.md?ref={sha}", "-H", "Accept: application/vnd.github.raw+json")

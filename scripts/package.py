@@ -41,8 +41,10 @@ def main():
         if name not in manifest["files"]:
             raise ValueError(f"Missing checksum: {name}")
     for name, digest in manifest["files"].items():
-        if Path(name).name != name:
+        if Path(name).name != name or any(c in name for c in "\\/:") or name in ("", ".", ".."):
             raise ValueError("Invalid bundle filename")
+        if (bundle / name).is_symlink() or not (bundle / name).is_file():
+            raise ValueError("Bundle members must be regular files")
         with (bundle / name).open("rb") as f:
             if hashlib.file_digest(f, "sha256").hexdigest() != digest:
                 raise ValueError(f"Bundle checksum mismatch: {name}")
