@@ -1,7 +1,7 @@
 { pkgs, care, frontend }:
 let
   lib = pkgs.lib;
-  postgres = pkgs.postgresql_17.override { jitSupport = false; };
+  postgres = pkgs.postgresql_17;
   python = import ./python.nix { inherit pkgs care; };
   web = import ./frontend.nix { inherit pkgs frontend; };
   native = with pkgs; [ stdenv.cc.cc.lib libpq gmp file glib pango harfbuzz fontconfig freetype cairo ];

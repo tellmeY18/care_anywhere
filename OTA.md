@@ -132,6 +132,10 @@ steps extend the implemented storage/activation path rather than replace it:
   QEMU target executables, strips host Go binaries, and uses LZMA DMGs. It ships a
   64 MiB formatted seed rather than 8 GiB; only its private copy is extended to an
   8 GiB logical data disk. ext4 grows on boot and QEMU supports discard/unmap.
+- PostgreSQL uses nixpkgs' standard `postgresql_17` output, which excludes its
+  separately packaged JIT output and forbids LLVM references. Do not override
+  `jitSupport = false`: the pinned nixpkgs/Nix combination fails output checks
+  on that custom rebuild (alpha build #35).
 - Do not cut fontconfig/Pango/fonts (PDF rendering), bound Redis with an eviction
   policy (Celery messages), or change object-store formats without workload tests.
   Keep the 4 GiB VM allocation until service memory measurements justify lowering it.

@@ -1,7 +1,7 @@
 { pkgs, python, app, env }:
 pkgs.runCommand "care-empty-database"
   (env // {
-    nativeBuildInputs = [ (pkgs.postgresql_17.override { jitSupport = false; }) ];
+    nativeBuildInputs = [ pkgs.postgresql_17 ];
   }) ''
   export HOME=$TMPDIR
   export DATABASE_URL="postgres:///care?host=$TMPDIR&user=$(id -un)"

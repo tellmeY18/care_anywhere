@@ -1,7 +1,8 @@
 { config, lib, pkgs, self, care, frontend, minioPackage, modulesPath, ... }:
 let
   layers = import ./app.nix { inherit pkgs care frontend; };
-  postgres = pkgs.postgresql_17.override { jitSupport = false; };
+  # nixpkgs splits JIT into a separate output; the normal package excludes it.
+  postgres = pkgs.postgresql_17;
   agent = pkgs.buildGoModule {
     pname = "care-anywhere-agent";
     version = "0.2.0";
