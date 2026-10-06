@@ -58,33 +58,17 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1791254437,
-        "narHash": "sha256-qMSsgG+9tIdx282dMqGuJAUK3t6F36clM6efd0rXfes=",
+        "lastModified": 1789585388,
+        "narHash": "sha256-mXpgyl/7dVT/MnmLdTl64bTaVdlrsOMOSYVHBZjW/ds=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "b25309931cfda5f0b8805f462a29897eeae50168",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixos-26.05",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs-minio": {
-      "locked": {
-        "lastModified": 1777014210,
-        "narHash": "sha256-7Cf6C4h85WAs19YRQlSeqY8OeTFBRyNLSH1ja9otgEI=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "e02e1158ced6773f143173828be86364b2a40379",
+        "rev": "75d3d33e5e727d548fb60e391cf23c2fd3cebd69",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "e02e1158ced6773f143173828be86364b2a40379",
+        "rev": "75d3d33e5e727d548fb60e391cf23c2fd3cebd69",
         "type": "github"
       }
     },
@@ -93,8 +77,7 @@
         "care": "care",
         "frontend": "frontend",
         "microvm": "microvm",
-        "nixpkgs": "nixpkgs",
-        "nixpkgs-minio": "nixpkgs-minio"
+        "nixpkgs": "nixpkgs"
       }
     },
     "spectrum": {
