@@ -25,6 +25,10 @@ def stage_runtime(dest, arch):
                  "5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543", "sha512")
         subprocess.run(["7z", "x", str(installer), "-o" + str(dest), "-y"], check=True)
         installer.unlink()
+        # Keep the one host target we launch; retain DLLs, licenses and firmware.
+        for p in dest.glob("qemu-system-*.exe"):
+            if p.name != "qemu-system-x86_64.exe":
+                p.unlink()
         # QEMU's Windows distribution keeps firmware at its top level.
         firmware = dest / "share/qemu"
         firmware.mkdir(parents=True, exist_ok=True)

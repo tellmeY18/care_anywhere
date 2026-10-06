@@ -5,6 +5,10 @@ package atomicfile
 
 import "golang.org/x/sys/windows"
 
+// Windows metadata writes use MoveFileEx with WRITE_THROUGH. Directory fsync
+// is not supported through os.File; file contents are synced before publication.
+func SyncDir(string) error { return nil }
+
 func replace(from, to string) error {
 	f, e := windows.UTF16PtrFromString(from)
 	if e != nil {

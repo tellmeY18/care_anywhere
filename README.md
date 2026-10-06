@@ -29,7 +29,7 @@ Hypervisor Platform** in Windows Features and CPU virtualization in firmware,
 then restart. This alpha is unsigned. WHPX hardware boot needs separate acceptance;
 hosted Windows CI exercises the same package using explicit slow QEMU TCG emulation.
 
-Allow **8 GB RAM and 22 GB free disk** for the app and clinic, plus space for
+Allow **8 GB RAM and 12 GB free disk** for the app and clinic, plus space for
 backups. The control panel opens immediately while the appliance is verified and
 the initial disk is prepared. Create an administrator, open CARE, sign in, then
 create your facility in CARE. Reopening the app returns to its existing panel.
@@ -53,7 +53,8 @@ Clinic data lives outside the app in `~/Library/Application Support/care-anywher
 on macOS, `${XDG_CONFIG_HOME:-~/.config}/care-anywhere` on Linux, and
 `%APPDATA%\care-anywhere` on Windows. Removing the
 app keeps that data. Use test records: this alpha has no automatic backups,
-password recovery, LAN access, or supported in-place updates.
+password recovery or LAN access. Layered alpha updates require an explicitly
+trusted local bundle; automatic signed-channel activation awaits beta.
 
 ## What runs
 
@@ -69,7 +70,8 @@ NAT by default for features such as SNOMED lookups. `CARE_NO_NETWORK=1` disables
 outbound connectivity while preserving local control. Nothing binds to the LAN.
 Email/SMS and other third-party integrations still are not configured.
 
-The OS/application image is read-only. Database, objects, generated settings,
+The base, Python runtime and application images are separate read-only EROFS
+disks, overlaid in the initrd. Database, objects, generated settings,
 static files and signing keys live on a separate 8 GiB ext4 data disk. The Nix
 build runs migrations into a fresh temporary PostgreSQL database and exports an
 empty logical seed. First boot restores that seed transactionally only when the
@@ -102,9 +104,10 @@ The management API requires a random per-run bearer token. Do not expose this
 preview listener to the LAN. Port overrides currently do not rewrite browser S3
 URLs, so keep the default port for attachment workflows.
 
-The first startup copies an 8 GiB disk and verifies the bundle. The desktop panel
+The first startup copies a 64 MiB formatted seed and sparsely extends its private
+copy to 8 GiB; ext4 grows at boot. Existing data disks are never formatted. The desktop panel
 appears before this work; the lower-level `serve` control page appears afterward.
-Allow at least 12 GiB free beyond the bundle,
+Allow at least 9 GiB free beyond the bundle for eventual data growth,
 plus room for backups and restore. Avoid cloud-synced data directories.
 
 ### Backup and restore
@@ -164,8 +167,8 @@ nix build --store ssh-ng://root@kenobi --eval-store auto --no-link \
   --print-out-paths .#packages.aarch64-linux.bundle
 ```
 
-Export only the bundle's `manifest.json`, `kernel`, `initrd`, `system.img`, and
-`data.img` using tar/rsync. Linux/Windows packaging separately stages QEMU and
+Export only the bundle's `manifest.json`, `kernel`, `initrd`, `system.img`,
+`runtime.img`, `app.img` and `data.img` using tar/rsync. Linux/Windows packaging separately stages QEMU and
 its dependencies with a checked runtime manifest.
 Do not distribute the generated Nix runner or copy
 its entire closure. All Nix paths used at runtime belong **inside** the guest.
@@ -308,7 +311,17 @@ python3 scripts/smoke.py --binary dist/care-anywhere-alpha --bundle dist \
    stability for the current security fixes. Move back to a release branch
    once it ships silo, or re-pin nixpkgs periodically in the meantime.
 
-Current `0.1.0-preview` manifests do not encode a migration compatibility policy.
-Do not swap arbitrary preview images against important data: take a backup and
-restore into a separate directory for testing. Signed updates and rollback are
-intentionally not exposed as working commands.
+## Layered updates (0.2 alpha)
+
+See [OTA.md](OTA.md) for the implemented contracts, CLI and first-beta gates.
+`update-fetch` downloads HTTPS images without activating them. `update-stage
+--trust-local` stages a verified local bundle while stopped; next start creates a
+cold snapshot and switches to state-owned layers. `update-status` reports pending
+or interrupted activation; `update-recover --destination` copies pre-update data
+into a new directory without overwriting post-update records. Native APFS clones
+are used on macOS; other hosts need space for a full snapshot copy.
+
+The new format checks base ABI, host protocol, runtime/base hashes and data schema.
+**0.1 preview data cannot be booted with the 0.2 layered base.** Preserve its old
+bundle and encrypted backup. A separate tested migration is required. Signing is
+deferred to beta, so downloaded hashes alone do not authenticate a publisher.

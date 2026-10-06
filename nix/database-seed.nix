@@ -1,7 +1,8 @@
 { pkgs, python, app, env }:
-pkgs.runCommand "care-empty-database" (env // {
-  nativeBuildInputs = [ pkgs.postgresql_17 ];
-}) ''
+pkgs.runCommand "care-empty-database"
+  (env // {
+    nativeBuildInputs = [ (pkgs.postgresql_17.override { jitSupport = false; }) ];
+  }) ''
   export HOME=$TMPDIR
   export DATABASE_URL="postgres:///care?host=$TMPDIR&user=$(id -un)"
   # Build-only credentials: no runtime.env, private key, or administrator is

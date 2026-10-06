@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -34,17 +35,32 @@ func verifyBundle(dir string) (manifest, error) {
 	if e = json.Unmarshal(b, &m); e != nil {
 		return m, e
 	}
-	if m.Version == "" || m.Arch == "" || !strings.HasPrefix(m.System, "/nix/store/") {
+	if m.Version == "" || m.Arch == "" || !strings.HasPrefix(m.System, "/nix/store/") ||
+		path.Dir(m.System) != "/nix/store" || strings.ContainsAny(m.System, " \t\n\r\\") {
 		return m, errors.New("invalid manifest")
 	}
-	for _, n := range []string{m.Kernel, m.Initrd, "system.img", "data.img"} {
+	if err := validateLayers(m); err != nil {
+		return m, err
+	}
+	names := []string{m.Kernel, m.Initrd, "system.img", "data.img"}
+	if m.Format == 2 {
+		names = append(names, "runtime.img", "app.img")
+	}
+	for _, n := range names {
 		if _, ok := m.Files[n]; !ok {
 			return m, fmt.Errorf("missing checksum: %s", n)
 		}
 	}
 	for n, want := range m.Files {
-		if n == "" || filepath.Base(n) != n {
+		if n == "" || filepath.Base(n) != n || strings.ContainsAny(n, "\\/:") || n == "." || n == ".." {
 			return m, errors.New("invalid bundle filename")
+		}
+		info, e := os.Lstat(filepath.Join(dir, n))
+		if e != nil {
+			return m, e
+		}
+		if !info.Mode().IsRegular() {
+			return m, errors.New("bundle member must be a regular file")
 		}
 		f, e := os.Open(filepath.Join(dir, n))
 		if e != nil {
@@ -110,6 +126,20 @@ func ensureData(state, bundle string, m manifest) error {
 	defer os.RemoveAll(stage)
 	if e := copyExclusive(filepath.Join(bundle, "data.img"), filepath.Join(stage, "data.img")); e != nil {
 		return e
+	}
+	if m.Format == 2 {
+		f, e := os.OpenFile(filepath.Join(stage, "data.img"), os.O_WRONLY, 0)
+		if e != nil {
+			return e
+		}
+		e = f.Truncate(m.DataBytes)
+		if e == nil {
+			e = f.Sync()
+		}
+		e = errors.Join(e, f.Close())
+		if e != nil {
+			return e
+		}
 	}
 	if e := saveJSON(filepath.Join(state, "release.json"), m); e != nil {
 		return e

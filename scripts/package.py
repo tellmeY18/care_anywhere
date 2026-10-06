@@ -37,7 +37,7 @@ def main():
     args = parser.parse_args()
     bundle = args.bundle.resolve()
     manifest = json.loads((bundle / "manifest.json").read_text())
-    for name in [manifest["kernel"], manifest["initrd"], "system.img", "data.img"]:
+    for name in [manifest["kernel"], manifest["initrd"], "system.img", "data.img", "runtime.img", "app.img"]:
         if name not in manifest["files"]:
             raise ValueError(f"Missing checksum: {name}")
     for name, digest in manifest["files"].items():
@@ -61,7 +61,7 @@ def main():
         exe.parent.mkdir(parents=True)
         resources.mkdir()
         dest = resources / "bundle"
-        run("go", "build", "-trimpath", "-o", str(exe), ".", cwd=ROOT)
+        run("go", "build", "-trimpath", "-ldflags=-s -w", "-o", str(exe), ".", cwd=ROOT)
         (contents / "Info.plist").write_bytes(plistlib.dumps({
             "CFBundleName": "CARE Anywhere", "CFBundleDisplayName": "CARE Anywhere",
             "CFBundleIdentifier": "network.ohc.care-anywhere", "CFBundleVersion": os.environ.get("GITHUB_RUN_NUMBER", "1"),
@@ -80,7 +80,7 @@ def main():
             "3. Open CARE Anywhere from Applications. Your browser opens automatically.\n\n"
             "This alpha is not notarized. After the first blocked launch, use System Settings > "
             "Privacy & Security > Open Anyway, then open the app again. Do not disable Gatekeeper.\n\n"
-            "Requires macOS 13+, Apple Silicon, 8 GB RAM and 22 GB free for app + clinic.\n"
+            "Requires macOS 13+, Apple Silicon, 8 GB RAM and 12 GB free for app + clinic.\n"
             "Initial preparation can take several minutes. Use test records for this alpha.\n"
             "Closing the browser keeps CARE running. Stop or quit from its control panel.\n"
             "Removing the app preserves clinic data in ~/Library/Application Support/care-anywhere.\n"
@@ -91,14 +91,14 @@ def main():
         resources = app
         dest = app / "bundle"
         env = dict(os.environ, GOOS="linux", GOARCH=arch, CGO_ENABLED="0")
-        run("go", "build", "-trimpath", "-o", str(app / "care-anywhere"), ".", cwd=ROOT, env=env)
+        run("go", "build", "-trimpath", "-ldflags=-s -w", "-o", str(app / "care-anywhere"), ".", cwd=ROOT, env=env)
         shutil.copy2(ROOT / "scripts/install-linux.sh", app / "install.sh")
         (app / "install.sh").chmod(0o755)
         shutil.copy2(ROOT / "scripts/care-anywhere.svg", app / "care-anywhere.svg")
         (app / "README.txt").write_text(
             "CARE Anywhere Linux alpha\n\nMake the AppImage executable, then open it.\n"
             "Without FUSE 2 use --appimage-extract-and-run. Everything runs locally.\n"
-            "Requires 8 GB RAM, KVM access, xdg-open, a browser, and 22 GB disk space.\n"
+            "Requires 8 GB RAM, KVM access, xdg-open, a browser, and 12 GB disk space.\n"
             "If /dev/kvm access is denied, ask your administrator to grant your user KVM access.\n"
             "Never run the desktop app with sudo.\n"
             "QEMU and its libraries are bundled. Data is in ${XDG_CONFIG_HOME:-~/.config}/care-anywhere and survives uninstall.\n"
@@ -111,7 +111,7 @@ def main():
         app.mkdir()
         resources = app
         dest = app / "bundle"
-        run("go", "build", "-trimpath", "-ldflags=-H=windowsgui", "-o", str(app / "care-anywhere.exe"), ".", cwd=ROOT)
+        run("go", "build", "-trimpath", "-ldflags=-s -w -H=windowsgui", "-o", str(app / "care-anywhere.exe"), ".", cwd=ROOT)
     dest.mkdir()
     shutil.copytree(ROOT / "frontend/dist", resources / "web")
     shutil.copytree(ROOT / "dist/onboarding", resources / "onboarding")
@@ -126,7 +126,7 @@ def main():
         run("codesign", "--force", "--sign", identity, "--options", "runtime", "--entitlements", str(ROOT / "entitlements.plist"), str(app))
         run("codesign", "--verify", "--deep", "--strict", str(app))
         artifact = out / f"CARE-Anywhere-{VERSION}-macos-{arch}.dmg"
-        run("hdiutil", "create", "-volname", "CARE Anywhere", "-srcfolder", str(stage), "-format", "UDZO", "-ov", str(artifact))
+        run("hdiutil", "create", "-volname", "CARE Anywhere", "-srcfolder", str(stage), "-format", "ULMO", "-ov", str(artifact))
         run("hdiutil", "verify", str(artifact))
         if identity != "-" and os.environ.get("MACOS_NOTARY_PROFILE"):
             run("xcrun", "notarytool", "submit", str(artifact), "--keychain-profile", os.environ["MACOS_NOTARY_PROFILE"], "--wait")

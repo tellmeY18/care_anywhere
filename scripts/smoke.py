@@ -113,11 +113,19 @@ def main():
         print("PASS: fresh boot, setup, CARE login, frontend, separate origins", flush=True)
         request(c["URL"] + "/stop", c["Token"], {})
         assert json.loads(request(c["URL"] + "/status", c["Token"]))["phase"] == "stopped"
+        # Exercise the installed launcher's state-owned layered cutover. The
+        # same application revision isolates snapshot/selection from migrations.
+        subprocess.run([str(binary), "update-stage", "--state", str(state),
+                        "--bundle", str(bundle), "--trust-local"], check=True)
         request(c["URL"] + "/start", c["Token"], {})
         s = wait_healthy(c, state, process)
         assert s["healthy"] and s["configured"]
         request("http://127.0.0.1:8484/api/v1/auth/login/", data=admin)
         print("PASS: stop/start preserves administrator", flush=True)
+        assert (state / "current.json").exists()
+        assert not (state / "update.json").exists()
+        assert list((state / "snapshots").glob("before-*/data.img"))
+        print("PASS: layered update, cold snapshot, health-confirmed activation", flush=True)
         request(c["URL"] + "/quit", c["Token"], {})
         process.wait(timeout=30)
         assert process.returncode == 0
@@ -125,6 +133,9 @@ def main():
         if a.restore:
             archive = state.parent / (state.name + ".age")
             restored = state.parent / (state.name + "-restored")
+            # Only these isolated synthetic snapshots are removed to make room
+            # for the encrypted restore exercise on hosted CI.
+            shutil.rmtree(state / "snapshots")
             subprocess.run([str(binary), "backup", "--state", str(state), "--file", str(archive)], check=True)
             # Synthetic test data only: release disk space before the restore.
             (state / "data.img").unlink()

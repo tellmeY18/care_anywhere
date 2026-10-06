@@ -1,119 +1,117 @@
-{ config, lib, pkgs, self, care, frontend, minioPackage, ... }:
+{ config, lib, pkgs, self, care, frontend, minioPackage, modulesPath, ... }:
 let
-  python = import ./python.nix { inherit pkgs care; };
-  web = import ./frontend.nix { inherit pkgs frontend; };
+  layers = import ./app.nix { inherit pkgs care frontend; };
+  postgres = pkgs.postgresql_17.override { jitSupport = false; };
   agent = pkgs.buildGoModule {
     pname = "care-anywhere-agent";
-    version = "0.1.0-preview";
+    version = "0.2.0";
     src = lib.fileset.toSource {
       root = ../.;
       fileset = lib.fileset.unions [
         (lib.fileset.fileFilter (file: file.hasExt "go") ../.)
-        ../go.mod ../go.sum
+        ../go.mod
+        ../go.sum
       ];
     };
     vendorHash = "sha256-eU5/KvEy1gyFXFCQDJ39u3hhog7nQNpHgMvjlC7HkGM=";
     env.CGO_ENABLED = "0";
+    ldflags = [ "-s" "-w" ];
     doCheck = false;
   };
-  libs = lib.makeLibraryPath (with pkgs; [ stdenv.cc.cc.lib libpq gmp file glib pango harfbuzz fontconfig freetype cairo ]);
-  app = pkgs.runCommand "care-app" { nativeBuildInputs = [ pkgs.gettext ]; } ''
-    cp -R ${care} $out
-    chmod -R u+w $out
-    # Source is read-only at runtime; use explicit persistent/generated paths.
-    substituteInPlace $out/config/settings/base.py \
-      --replace-fail 'STATIC_ROOT = str(BASE_DIR / "staticfiles")' 'STATIC_ROOT = "/var/lib/care/staticfiles"' \
-      --replace-fail 'MEDIA_ROOT = str(APPS_DIR / "media")' 'MEDIA_ROOT = "/var/lib/care/media"'
-    substituteInPlace $out/config/settings/deployment.py \
-      --replace-fail 'env("JWKS_BASE64", default=get_jwks_from_file(BASE_DIR))' 'env("JWKS_BASE64")'
-    find $out/locale -name '*.po' -exec sh -c 'msgfmt "$1" -o "''${1%.po}.mo"' sh {} \;
-  '';
-  env = {
-    DJANGO_SETTINGS_MODULE = "config.settings.deployment";
-    DATABASE_URL = "postgres:///care?host=/run/postgresql";
-    REDIS_URL = "redis://127.0.0.1:6379/0";
-    CELERY_BROKER_URL = "redis://127.0.0.1:6379/1";
-    DJANGO_ALLOWED_HOSTS = ''["127.0.0.1","localhost","guest"]'';
-    DJANGO_SECURE_SSL_REDIRECT = "False";
-    LD_LIBRARY_PATH = libs;
-    FONTCONFIG_FILE = "/etc/fonts/fonts.conf";
-    PYTHONDONTWRITEBYTECODE = "1";
-    PYTHONUNBUFFERED = "1";
-    BUCKET_REGION = "us-east-1";
-    BUCKET_ENDPOINT = "http://127.0.0.1:9100";
-    BUCKET_EXTERNAL_ENDPOINT = "http://127.0.0.1:8484";
-    FILE_UPLOAD_BUCKET = "patient-bucket";
-    FACILITY_S3_BUCKET = "facility-bucket";
-  };
-  databaseSeed = import ./database-seed.nix { inherit pkgs python app env; };
-  service = command: {
+  service = name: {
     wantedBy = [ "multi-user.target" ];
-    requires = [ "care-init.service" ]; after = [ "care-init.service" ];
-    environment = env;
+    requires = [ "care-init.service" ];
+    after = [ "care-init.service" ];
     serviceConfig = {
-      User = "care"; Group = "care"; WorkingDirectory = app;
+      User = "care";
+      Group = "care";
       EnvironmentFile = "/var/lib/care/runtime.env";
-      ExecStart = command; Restart = "on-failure"; RestartSec = 5;
-      TimeoutStopSec = 120; NoNewPrivileges = true; PrivateTmp = true;
+      ExecStart = "/run/care/app/bin/${name}";
+      Restart = "on-failure";
+      RestartSec = 5;
+      TimeoutStopSec = 120;
+      NoNewPrivileges = true;
+      PrivateTmp = true;
     };
   };
-  admin = pkgs.writeShellScriptBin "care-admin" ''
-    cd ${app}
+  admin = name: pkgs.writeShellScriptBin "care-${name}" ''
+    set -euo pipefail
     set -a
     source /var/lib/care/runtime.env
-    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") env)}
-    exec ${pkgs.util-linux}/bin/runuser -u care -- ${python}/bin/python -c 'import json,sys,django; django.setup(); from django.contrib.auth import get_user_model; d=json.load(sys.stdin); U=get_user_model(); assert not U.objects.filter(is_superuser=True).exists(), "Administrator already exists"; U.objects.create_superuser(username=d["Username"],email="",password=d["Password"])'
+    exec ${pkgs.util-linux}/bin/runuser -u care -- /run/care/app/bin/${name}
   '';
-  adminReset = pkgs.writeShellScriptBin "care-admin-reset" ''
-    cd ${app}
-    set -a
-    source /var/lib/care/runtime.env
-    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") env)}
-    exec ${pkgs.util-linux}/bin/runuser -u care -- ${python}/bin/python -c 'import json,sys,django; django.setup(); from django.contrib.auth import get_user_model; d=json.load(sys.stdin); U=get_user_model(); u=U.objects.get(username=d["Username"],is_superuser=True); u.set_password(d["Password"]); u.save()'
-  '';
-in {
+  layerMount = id: {
+    device = "/dev/disk/by-id/virtio-care-${id}";
+    fsType = "erofs";
+    options = [ "ro" ];
+    neededForBoot = true;
+    noCheck = true;
+  };
+in
+{
+  imports = [ "${modulesPath}/profiles/minimal.nix" "${modulesPath}/profiles/headless.nix" ];
   system.stateVersion = "25.05";
+  system.build.careApp = layers.app;
+  system.build.careRuntime = layers.runtime;
   networking.hostName = "care-anywhere";
+  nix.enable = false;
+  system.switch.enable = false;
+  documentation.enable = false;
+  environment.defaultPackages = [ ];
+  security.sudo.enable = false;
   microvm = {
     hypervisor = "qemu";
-    mem = 4096; vcpu = 2; storeOnDisk = true;
+    mem = 4096;
+    vcpu = 2;
+    storeOnDisk = true;
+    storeDiskType = "erofs";
+    storeDiskErofsFlags = [ "-zlz4hc" "-Eztailpacking" "-Efragments" "-Ededupe" ];
     volumes = [{ image = "data.img"; mountPoint = "/var/lib"; size = 8192; }];
   };
-  boot.kernelModules = [ "vmw_vsock_virtio_transport" "virtio_net" "qemu_fw_cfg" ];
-  # Local-first: the host attaches outbound-only NAT internet by default (see
-  # vm_darwin.go) so features that need it — e.g. SNOMED lookups via the
-  # Snowstorm terminology server — work. The guest DHCPs if a NIC appears and
-  # is otherwise inert (no NIC => no traffic). The firewall below blocks all
-  # unsolicited inbound traffic; nothing listens for the LAN or the internet.
+  fileSystems."/nix/.base-store" = layerMount "base";
+  fileSystems."/nix/.runtime-store" = layerMount "runtime";
+  fileSystems."/nix/.app-store" = layerMount "app";
+  fileSystems."/nix/store" = lib.mkForce {
+    neededForBoot = true;
+    overlay.lowerdir = [ "/nix/.app-store" "/nix/.runtime-store" "/nix/.base-store" ];
+  };
+  fileSystems."/var/lib".device = lib.mkForce "/dev/disk/by-id/virtio-care-data";
+  fileSystems."/var/lib".autoResize = true;
+  fileSystems."/var/lib".neededForBoot = true;
+  boot.initrd.supportedFilesystems = [ "erofs" "overlay" "ext4" ];
+  boot.kernelModules = [ "vmw_vsock_virtio_transport" "virtio_net" "qemu_fw_cfg" "virtio_balloon" ];
   networking.useDHCP = true;
   networking.firewall.enable = true;
-  # QEMU user-mode NAT forwards only a host loopback socket. The agent requires
-  # a fresh per-boot client certificate; all application services stay loopback-only.
   networking.firewall.allowedTCPPorts = [ 8080 ];
-  users.groups.care = {};
+  users.groups.care = { };
   users.users.care = { isSystemUser = true; group = "care"; };
   services.postgresql = {
-    enable = true; package = pkgs.postgresql_17;
-    ensureDatabases = [ "care" ]; ensureUsers = [{ name = "care"; ensureDBOwnership = true; }];
+    enable = true;
+    package = postgres;
+    ensureDatabases = [ "care" ];
+    ensureUsers = [{ name = "care"; ensureDBOwnership = true; }];
     authentication = lib.mkForce ''local all all peer'';
+    settings.shared_buffers = "128MB";
   };
   services.redis.servers."" = { enable = true; port = 6379; };
-  # minioPackage is pkgs.silo (see flake.nix): upstream minio/minio is
-  # abandoned and unpatched (nixpkgs marks it insecure for CVE-2026-40344 and
-  # others). silo is an actively maintained fork — same `minio` server
-  # binary, MINIO_* env vars and on-disk format — with those CVEs fixed.
+  # Silo retains MinIO's on-disk format and API, with current security fixes.
   services.minio = {
-    enable = true; listenAddress = "127.0.0.1:9100";
+    enable = true;
+    listenAddress = "127.0.0.1:9100";
     rootCredentialsFile = "/var/lib/care/minio.env";
     package = minioPackage;
   };
+  services.fstrim.enable = true;
   fonts = { fontconfig.enable = true; packages = [ pkgs.dejavu_fonts ]; };
-  environment.systemPackages = [ admin adminReset ];
+  environment.systemPackages = [ (admin "admin") (admin "admin-reset") ];
+  systemd.tmpfiles.rules = [ "d /run/care 0755 root root -" "L /run/care/app - - - - /nix/.app-store/entry" ];
   systemd.services.care-secrets = {
-    requiredBy = [ "minio.service" "care-init.service" ]; before = [ "minio.service" "care-init.service" ];
+    requiredBy = [ "minio.service" "care-init.service" ];
+    before = [ "minio.service" "care-init.service" ];
+    after = [ "systemd-tmpfiles-setup.service" ];
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; StateDirectory = "care"; };
     script = ''
-      ${python}/bin/python ${./secrets.py}
+      /run/care/app/bin/secrets
       chown -R care:care /var/lib/care
     '';
   };
@@ -121,46 +119,34 @@ in {
     wantedBy = [ "multi-user.target" ];
     requires = [ "postgresql.target" "redis.service" "care-secrets.service" ];
     after = [ "postgresql.target" "redis.service" "care-secrets.service" ];
-    environment = env;
-    serviceConfig = { Type = "oneshot"; RemainAfterExit = true; User = "care"; Group = "care"; WorkingDirectory = app; EnvironmentFile = "/var/lib/care/runtime.env"; };
-    script = ''
-      # A logical seed avoids replaying hundreds of historical migrations under
-      # software emulation. Restore only a genuinely empty public schema, in
-      # one transaction: interruption rolls back and is safe to retry.
-      tables=$(${pkgs.postgresql_17}/bin/psql "$DATABASE_URL" -Atc \
-        "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")
-      if [ "$tables" = 0 ]; then
-        echo "Restoring empty migrated CARE database"
-        ${pkgs.postgresql_17}/bin/pg_restore --dbname="$DATABASE_URL" \
-          --no-owner --no-privileges --single-transaction --exit-on-error \
-          ${databaseSeed}/empty.dump
-      fi
-      ${python}/bin/python manage.py migrate --noinput
-      ${python}/bin/python manage.py sync_permissions_roles
-      ${python}/bin/python manage.py sync_valueset
-      ${python}/bin/python manage.py collectstatic --noinput
-    '';
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      User = "care";
+      Group = "care";
+      EnvironmentFile = "/var/lib/care/runtime.env";
+      ExecStart = "/run/care/app/bin/init";
+    };
   };
-  # Django/PDF imports can exceed Gunicorn's 30s default under explicit TCG.
-  # Keep a bounded timeout and memory-backed heartbeats instead of killing
-  # workers repeatedly before they can answer the first health request.
-  systemd.services.care-api = lib.recursiveUpdate
-    (service "${python}/bin/gunicorn config.wsgi:application --bind 127.0.0.1:9000 --workers=2 --timeout=300 --worker-tmp-dir=/run/care-api")
-    { serviceConfig.RuntimeDirectory = "care-api"; };
+  systemd.services.care-api = lib.recursiveUpdate (service "api") { serviceConfig.RuntimeDirectory = "care-api"; };
+  systemd.services.care-worker = service "worker";
+  systemd.services.care-beat = service "beat";
   systemd.services.care-buckets = {
     wantedBy = [ "multi-user.target" ];
     requires = [ "minio.service" "care-secrets.service" ];
     after = [ "minio.service" "care-secrets.service" ];
-    environment = env;
-    serviceConfig = { Type = "oneshot"; RemainAfterExit = true; User = "care"; Group = "care"; EnvironmentFile = "/var/lib/care/runtime.env"; };
-    script = ''
-      ${python}/bin/python ${./buckets.py}
-    '';
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      User = "care";
+      Group = "care";
+      EnvironmentFile = "/var/lib/care/runtime.env";
+      ExecStart = "/run/care/app/bin/buckets";
+    };
   };
-  systemd.services.care-worker = service "${python}/bin/celery -A config.celery_app worker --concurrency=1 --loglevel=info";
-  systemd.services.care-beat = service "${python}/bin/celery -A config.celery_app beat --schedule=/var/lib/care/beat --loglevel=info";
   systemd.services.care-agent = {
-    wantedBy = [ "multi-user.target" ]; after = [ "local-fs.target" ];
+    wantedBy = [ "multi-user.target" ];
+    after = [ "local-fs.target" ];
     path = [ pkgs.systemd ];
     serviceConfig = { ExecStart = "${agent}/bin/care_anywhere guest"; Restart = "on-failure"; };
   };
@@ -168,16 +154,7 @@ in {
     enable = true;
     extraConfig = ''
       http://127.0.0.1:8081 {
-        handle /api/* { reverse_proxy 127.0.0.1:9000 }
-        handle /ping/* { reverse_proxy 127.0.0.1:9000 }
-        handle /static/* { reverse_proxy 127.0.0.1:9000 }
-        handle /patient-bucket/* { reverse_proxy 127.0.0.1:9100 }
-        handle /facility-bucket/* { reverse_proxy 127.0.0.1:9100 }
-        handle {
-          root * ${web}
-          try_files {path} /index.html
-          file_server
-        }
+        import /run/care/app/Caddyfile
       }
     '';
   };

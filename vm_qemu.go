@@ -45,6 +45,9 @@ func bootVM(bundle, state string, m manifest) (machine, error) {
 		return nil, err
 	}
 	runtimeDir := filepath.Join(filepath.Dir(bundle), "qemu")
+	if m.hostRuntime != "" {
+		runtimeDir = m.hostRuntime
+	}
 	if err := verifyRuntime(runtimeDir); err != nil {
 		return nil, err
 	}
@@ -86,9 +89,14 @@ func bootVM(bundle, state string, m manifest) (machine, error) {
 		"-kernel", filepath.Join(bundle, m.Kernel), "-initrd", filepath.Join(bundle, m.Initrd),
 		"-append", "console=" + console + " panic=1 init=" + m.System + "/init",
 		"-fw_cfg", "name=opt/care/tls,file=" + qemuEscape(secret),
-		"-drive", "file=" + qemuEscape(filepath.Join(bundle, "system.img")) + ",format=raw,if=virtio,readonly=on",
-		"-drive", "file=" + qemuEscape(filepath.Join(state, "data.img")) + ",format=raw,if=virtio",
+		"-drive", "file=" + qemuEscape(filepath.Join(bundle, "system.img")) + ",format=raw,if=virtio,readonly=on,serial=care-base",
+		"-drive", "file=" + qemuEscape(filepath.Join(state, "data.img")) + ",format=raw,if=virtio,serial=care-data,discard=unmap",
 		"-device", "virtio-net-pci,netdev=net0"}
+	if m.Format == 2 {
+		for _, layer := range []string{"runtime", "app"} {
+			args = append(args, "-drive", "file="+qemuEscape(filepath.Join(bundle, layer+".img"))+",format=raw,if=virtio,readonly=on,serial=care-"+layer)
+		}
+	}
 	network := "user,id=net0,hostfwd=tcp:127.0.0.1:" + port + "-:8080"
 	if os.Getenv("CARE_NO_NETWORK") == "1" {
 		network += ",restrict=on"

@@ -117,7 +117,7 @@ jobs:
           done
           echo "path=$bundle" >> "$GITHUB_OUTPUT"
           mkdir -p dist
-          tar -czf dist/appliance.tar.gz -C "$bundle" manifest.json kernel initrd system.img data.img
+          tar -czf dist/appliance.tar.gz -C "$bundle" manifest.json kernel initrd system.img runtime.img app.img data.img
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: appliance-${{ matrix.arch }}

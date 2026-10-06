@@ -63,6 +63,18 @@ func guestMain() error {
 		if resp != nil {
 			resp.Body.Close()
 		}
+		if healthy {
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			healthy = exec.CommandContext(ctx, "systemctl", "is-active", "care-init", "care-api", "care-worker", "care-beat", "care-buckets", "postgresql.target", "redis", "minio", "caddy").Run() == nil
+			cancel()
+		}
+		if healthy {
+			web, err := client.Get("http://127.0.0.1:8081/")
+			healthy = err == nil && web.StatusCode == 200
+			if web != nil {
+				web.Body.Close()
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"configured": e == nil, "healthy": healthy})
 	})

@@ -33,13 +33,21 @@ func bootVM(bundle, state string, m manifest) (machine, error) {
 		return nil, e
 	}
 	var disks []vz.StorageDeviceConfiguration
-	for i, p := range []string{filepath.Join(bundle, "system.img"), filepath.Join(state, "data.img")} {
-		a, e := vz.NewDiskImageStorageDeviceAttachment(p, i == 0)
+	paths := []string{filepath.Join(bundle, "system.img"), filepath.Join(state, "data.img")}
+	ids := []string{"care-base", "care-data", "care-runtime", "care-app"}
+	if m.Format == 2 {
+		paths = append(paths, filepath.Join(bundle, "runtime.img"), filepath.Join(bundle, "app.img"))
+	}
+	for i, p := range paths {
+		a, e := vz.NewDiskImageStorageDeviceAttachment(p, i != 1)
 		if e != nil {
 			return nil, e
 		}
 		d, e := vz.NewVirtioBlockDeviceConfiguration(a)
 		if e != nil {
+			return nil, e
+		}
+		if e = d.SetBlockDeviceIdentifier(ids[i]); e != nil {
 			return nil, e
 		}
 		disks = append(disks, d)

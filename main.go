@@ -25,12 +25,23 @@ import (
 )
 
 type manifest struct {
-	Version string            `json:"version"`
-	Arch    string            `json:"arch"`
-	Kernel  string            `json:"kernel"`
-	Initrd  string            `json:"initrd"`
-	System  string            `json:"system"`
-	Files   map[string]string `json:"files"`
+	Version         string            `json:"version"`
+	Arch            string            `json:"arch"`
+	Kernel          string            `json:"kernel"`
+	Initrd          string            `json:"initrd"`
+	System          string            `json:"system"`
+	Files           map[string]string `json:"files"`
+	Format          int               `json:"format,omitempty"`
+	BaseABI         int               `json:"base_abi,omitempty"`
+	RequiresBaseABI int               `json:"requires_base_abi,omitempty"`
+	Protocol        int               `json:"protocol,omitempty"`
+	MinHostProtocol int               `json:"min_host_protocol,omitempty"`
+	DataSchema      int               `json:"data_schema,omitempty"`
+	Migrates        bool              `json:"migrates"`
+	DataBytes       int64             `json:"data_bytes,omitempty"`
+	RequiresRuntime string            `json:"requires_runtime,omitempty"`
+	RequiresBase    string            `json:"requires_base,omitempty"`
+	hostRuntime     string
 }
 
 func main() {
@@ -58,6 +69,9 @@ func run() error {
 	file := fs.String("file", "", "backup file")
 	key := fs.String("key", "", "recovery identity file")
 	noOpen := fs.Bool("no-open", false, "do not open a browser")
+	trusted := fs.Bool("trust-local", false, "explicitly trust an unsigned local update bundle")
+	updateURL := fs.String("url", "", "HTTPS URL of an update manifest (download only)")
+	destination := fs.String("destination", "", "new empty state directory for update recovery")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -76,6 +90,17 @@ func run() error {
 		return backup(*state, *file)
 	case "restore":
 		return restore(*state, *file, *key)
+	case "update-stage":
+		if !*trusted {
+			return errors.New("unsigned alpha updates require --trust-local; network activation awaits signing")
+		}
+		return stageUpdate(*state, *bundle)
+	case "update-status":
+		return updateStatus(*state)
+	case "update-fetch":
+		return fetchUpdate(*state, *updateURL)
+	case "update-recover":
+		return recoverUpdate(*state, *destination)
 	case "status", "stop", "logs":
 		c, err := readControl(*state)
 		if err != nil {
@@ -141,13 +166,7 @@ func serve(state, bundle string, port int, noOpen bool) error {
 	if err != nil {
 		return err
 	}
-	m, err := verifyBundle(bundle)
-	if err != nil {
-		return err
-	}
-	if m.Arch != runtime.GOARCH {
-		return fmt.Errorf("bundle architecture %s does not match %s", m.Arch, runtime.GOARCH)
-	}
+	hostBundle := bundle
 	if err = os.MkdirAll(state, 0700); err != nil {
 		return err
 	}
@@ -156,6 +175,18 @@ func serve(state, bundle string, port int, noOpen bool) error {
 		return err
 	}
 	defer unlock()
+	bundle, err = selectBundle(state, bundle)
+	if err != nil {
+		return err
+	}
+	m, err := verifyBundle(bundle)
+	if err != nil {
+		return err
+	}
+	if m.Arch != runtime.GOARCH {
+		return fmt.Errorf("bundle architecture %s does not match %s", m.Arch, runtime.GOARCH)
+	}
+	m.hostRuntime = filepath.Join(filepath.Dir(hostBundle), "qemu")
 	if err = ensureData(state, bundle, m); err != nil {
 		return err
 	}
@@ -167,7 +198,7 @@ func serve(state, bundle string, port int, noOpen bool) error {
 	if err = json.Unmarshal(b, &release); err != nil {
 		return err
 	}
-	if release.Version != m.Version {
+	if !compatibleData(release, m) {
 		return errors.New("this data belongs to a different release; in-place upgrades are not implemented")
 	}
 	machine, err := bootVM(bundle, state, m)
@@ -249,9 +280,26 @@ func serve(state, bundle string, port int, noOpen bool) error {
 				return
 			}
 			defer resp.Body.Close()
+			body, e := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			if e != nil {
+				http.Error(w, e.Error(), 502)
+				return
+			}
+			var status struct {
+				Healthy bool `json:"healthy"`
+			}
+			if resp.StatusCode == 200 && json.Unmarshal(body, &status) == nil && status.Healthy {
+				mutation.Lock()
+				e = finishUpdate(state)
+				mutation.Unlock()
+				if e != nil {
+					http.Error(w, e.Error(), 500)
+					return
+				}
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, resp.Body)
+			w.Write(body)
 		case "/control/setup":
 			if r.Method != "POST" {
 				http.Error(w, "method", 405)
@@ -324,7 +372,7 @@ func serve(state, bundle string, port int, noOpen bool) error {
 			http.Error(w, "invalid host", 403)
 			return
 		}
-		http.StripPrefix("/onboarding/", http.FileServer(http.Dir(filepath.Join(filepath.Dir(bundle), "onboarding")))).ServeHTTP(w, r)
+		http.StripPrefix("/onboarding/", http.FileServer(http.Dir(filepath.Join(filepath.Dir(hostBundle), "onboarding")))).ServeHTTP(w, r)
 	}))
 	clinicMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != clinicListener.Addr().String() {

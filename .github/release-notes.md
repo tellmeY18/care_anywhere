@@ -14,8 +14,9 @@ installed QEMU required. **Early alpha: use test records.**
 | Linux ARM64 | `CARE-Anywhere-{{VERSION}}-linux-arm64.AppImage` | Mark executable, then open |
 | Windows 10/11 x86_64 | `CARE-Anywhere-{{VERSION}}-windows-amd64.exe` | Run installer, open CARE Anywhere from Start |
 
-Allow **8 GB RAM and 22 GB free disk**, plus temporary installation/extraction and
-backup space. First preparation copies an 8 GiB data disk and runs migrations;
+Allow **8 GB RAM and 12 GB free disk**, plus temporary installation/extraction,
+update snapshots and backup space. First preparation extends a 64 MiB formatted
+seed to an 8 GiB logical clinic disk and grows ext4 at boot;
 the browser control panel appears while it works. Create the administrator, open
 CARE, sign in, then use **Clinic & staff setup** for facility/staff onboarding.
 Closing the browser keeps CARE running. Use **Stop** or **Quit CARE Anywhere**.
@@ -31,6 +32,18 @@ Closing the browser keeps CARE running. Use **Stop** or **Quit CARE Anywhere**.
   no separate QEMU installation. This alpha installer is unsigned.
 
 ## Changes
+
+- Separate base, Python-runtime and app EROFS images with stable disk identifiers
+  and initrd store overlay. App releases can replace app data without reinstalling
+  the launcher. Explicit base ABI, protocol and exact runtime/base hash contracts.
+- Download-only HTTPS update fetching, explicit trusted-local staging, activation
+  on restart, cold pre-update snapshots, health confirmation and recovery into a
+  new state directory. Signing/automatic activation remains gated for beta.
+- Removed PostgreSQL JIT/LLVM and Python bytecode overhead; stripped launchers,
+  LZMA DMGs and only the required Windows QEMU target executable.
+- **Format boundary:** this layered alpha refuses 0.1 preview data. Keep the old
+  bundle and backup; start a new test clinic. Do not edit release metadata to force
+  an upgrade. Schema-changing updates require a separately tested migration.
 
 - Faster first boot: CI builds an empty migrated database seed. New clinics
   restore it transactionally instead of replaying historical schema changes;
@@ -60,7 +73,7 @@ Each download has a `.sha256` sidecar. For example:
 shasum -a 256 -c CARE-Anywhere-{{VERSION}}-linux-amd64.AppImage.sha256
 ```
 
-No supported in-place updates, LAN access, scheduled backups, recovery codes or
+No signed automatic updates, LAN access, scheduled backups, recovery codes or
 cross-architecture restore. Preserve both backup `.age` and `.key` files, with
 the key stored separately. Stop CARE and back up before testing a new alpha.
 Uninstalling preserves clinic data (`%APPDATA%\care-anywhere` on Windows).
