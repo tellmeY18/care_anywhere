@@ -68,6 +68,8 @@ traffic uses a loopback-only forward authenticated by fresh per-boot mutual TLS
 credentials passed privately through fw_cfg. All platforms have outbound-only
 NAT by default for features such as SNOMED lookups. `CARE_NO_NETWORK=1` disables
 outbound connectivity while preserving local control. Nothing binds to the LAN.
+QEMU disk serials are set on explicit virtio block devices, preserving the guest's
+stable disk IDs for the read-only layers and writable data disk.
 Email/SMS and other third-party integrations still are not configured.
 
 The base, Python runtime and application images are separate read-only EROFS
