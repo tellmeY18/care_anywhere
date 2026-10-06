@@ -300,6 +300,13 @@ python3 scripts/smoke.py --binary dist/care-anywhere-alpha --bundle dist \
    platform-specific shutdown/crash testing and Windows signing.
 6. Test clinical browser workflows (including attachments and PDFs), not just HTTP
    responses. Ship third-party notices/source offers for every appliance component.
+7. **Migrate off MinIO.** Upstream minio/minio is abandoned and unpatched
+   (CVE-2026-40344, CVE-2026-41145, CVE-2026-33322, CVE-2026-33419,
+   CVE-2026-34204, CVE-2026-39414). This alpha pins a separate, non-following
+   `nixpkgs-minio` flake input at the last commit before nixpkgs marked it
+   insecure, purely to keep evaluating; it does not fix these vulnerabilities.
+   Replace with an actively maintained S3-compatible store (e.g. Garage,
+   SeaweedFS) before any non-alpha release.
 
 Current `0.1.0-preview` manifests do not encode a migration compatibility policy.
 Do not swap arbitrary preview images against important data: take a backup and

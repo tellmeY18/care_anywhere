@@ -72,12 +72,29 @@
         "type": "github"
       }
     },
+    "nixpkgs-minio": {
+      "locked": {
+        "lastModified": 1777014210,
+        "narHash": "sha256-7Cf6C4h85WAs19YRQlSeqY8OeTFBRyNLSH1ja9otgEI=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "e02e1158ced6773f143173828be86364b2a40379",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "e02e1158ced6773f143173828be86364b2a40379",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "care": "care",
         "frontend": "frontend",
         "microvm": "microvm",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "nixpkgs-minio": "nixpkgs-minio"
       }
     },
     "spectrum": {

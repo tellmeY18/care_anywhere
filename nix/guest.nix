@@ -1,4 +1,4 @@
-{ config, lib, pkgs, self, care, frontend, ... }:
+{ config, lib, pkgs, self, care, frontend, minioPackage, ... }:
 let
   python = import ./python.nix { inherit pkgs care; };
   web = import ./frontend.nix { inherit pkgs frontend; };
@@ -98,9 +98,14 @@ in {
     authentication = lib.mkForce ''local all all peer'';
   };
   services.redis.servers."" = { enable = true; port = 6379; };
+  # minioPackage is pinned from a separate, non-following flake input (see
+  # flake.nix): upstream minio/minio is abandoned and unpatched; this is the
+  # last nixpkgs revision before it was marked insecure for CVE-2026-40344 and
+  # others. Migrate off MinIO before any non-alpha release — see AGENTS.md.
   services.minio = {
     enable = true; listenAddress = "127.0.0.1:9100";
     rootCredentialsFile = "/var/lib/care/minio.env";
+    package = minioPackage;
   };
   fonts = { fontconfig.enable = true; packages = [ pkgs.dejavu_fonts ]; };
   environment.systemPackages = [ admin adminReset ];
