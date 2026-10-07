@@ -34,5 +34,9 @@ pkgs.stdenv.mkDerivation {
       --replace-fail 'cp312-cp312-' 'py3-none-'
     $out/bin/pip check
     find $out -type d -name __pycache__ -prune -exec rm -rf {} +
+    # One ordinary bytecode variant pays compilation once at build time. Removing
+    # all bytecode makes every Django/Celery process compile the wheels again,
+    # which exceeds the hosted Windows TCG boot budget.
+    $out/bin/python -m compileall -q -j "$NIX_BUILD_CORES" -o 0 --invalidation-mode checked-hash $out/lib/python3.13/site-packages
   '';
 }

@@ -41,7 +41,8 @@ Closing the browser keeps CARE running. Use **Stop** or **Quit CARE Anywhere**.
   new state directory. Signing/automatic activation remains gated for beta.
 - `arm64-*` and `amd64-*` assets are standalone update layers, not installers.
   Their manifests support `update-fetch`; see [OTA instructions](https://github.com/tellmeY18/care_anywhere/blob/main/OTA.md).
-- Removed PostgreSQL JIT/LLVM and Python bytecode overhead; stripped launchers,
+- Excluded PostgreSQL JIT/LLVM; retained one precompiled Python bytecode variant
+  and consolidated Django initialization to avoid repeated startup compilation/imports; stripped launchers,
   LZMA DMGs and only the required Windows QEMU target executable.
 - **Format boundary:** this layered alpha refuses 0.1 preview data. Keep the old
   bundle and backup; start a new test clinic. Do not edit release metadata to force

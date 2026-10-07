@@ -319,6 +319,9 @@ python3 scripts/smoke.py --binary dist/care-anywhere-alpha --bundle dist \
 See [OTA.md](OTA.md) for the implemented contracts, CLI and first-beta gates.
 The app's Caddy fragment is parsed with the complete server configuration during
 the Nix build. Guest diagnostics include Caddy and object-store startup failures.
+Python wheels retain one build-time bytecode variant, and initialization runs
+migrations, reference-data sync and static collection in one Django process to
+avoid repeated compilation/import work on slow emulated hosts.
 `update-fetch` downloads HTTPS images without activating them. `update-stage
 --trust-local` stages a verified local bundle while stopped; next start creates a
 cold snapshot and switches to state-owned layers. `update-status` reports pending

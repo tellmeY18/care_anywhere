@@ -47,10 +47,15 @@ let
       if [ "$tables" = 0 ]; then
         ${postgres}/bin/pg_restore --dbname="$DATABASE_URL" --no-owner --no-privileges --single-transaction --exit-on-error ${seed}/empty.dump
       fi
-      ${python}/bin/python manage.py migrate --noinput
-      ${python}/bin/python manage.py sync_permissions_roles
-      ${python}/bin/python manage.py sync_valueset
-      ${python}/bin/python manage.py collectstatic --noinput
+      ${python}/bin/python - <<'PY'
+      import django
+      from django.core.management import call_command
+      django.setup()
+      call_command("migrate", interactive=False)
+      call_command("sync_permissions_roles")
+      call_command("sync_valueset")
+      call_command("collectstatic", interactive=False)
+      PY
     '')
     (command "api" ''exec ${python}/bin/gunicorn config.wsgi:application --bind 127.0.0.1:9000 --workers=2 --timeout=300 --worker-tmp-dir=/run/care-api'')
     (command "worker" ''exec ${python}/bin/celery -A config.celery_app worker --concurrency=1 --loglevel=info'')

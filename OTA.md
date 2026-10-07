@@ -128,7 +128,7 @@ steps extend the implemented storage/activation path rather than replace it:
 - Record per-image and packaged sizes in CI. Compare app-only releases to verify
   that base/runtime hashes are unchanged; native-wheel and nixpkgs bumps are
   expected to replace runtime and potentially base. No unsupported size promise.
-- Alpha removes PostgreSQL LLVM/JIT, unnecessary wheel bytecode and unused Windows
+- Alpha excludes PostgreSQL LLVM/JIT, keeps one precompiled wheel bytecode variant and removes unused Windows
   QEMU target executables, strips host Go binaries, and uses LZMA DMGs. It ships a
   64 MiB formatted seed rather than 8 GiB; only its private copy is extended to an
   8 GiB logical data disk. ext4 grows on boot and QEMU supports discard/unmap.
