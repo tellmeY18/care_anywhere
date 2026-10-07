@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 PLATFORMS = {
@@ -141,7 +142,14 @@ def publish(run_id):
         if release is None:
             gh("release", "create", tag, "--repo", repo, "--verify-tag", "--draft", "--prerelease",
                "--title", "CARE Anywhere " + version, "--notes-file", str(notes))
-            release = next(r for r in pages("releases", None) if r["tag_name"] == tag)
+            # The release list is eventually consistent right after creation.
+            for _ in range(10):
+                release = next((r for r in pages("releases", None) if r["tag_name"] == tag), None)
+                if release:
+                    break
+                time.sleep(3)
+            else:
+                raise ValueError("Created draft release did not appear in the release list")
         if not release["prerelease"]:
             raise ValueError("Refusing to modify a non-alpha release")
         existing = pages(f"releases/{release['id']}/assets", None)
