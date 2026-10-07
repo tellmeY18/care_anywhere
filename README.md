@@ -316,7 +316,7 @@ python3 scripts/smoke.py --binary dist/care-anywhere-alpha --bundle dist \
 
 ## Layered updates (0.2 alpha)
 
-See [OTA.md](OTA.md) for the implemented contracts, CLI and first-beta gates.
+See [docs/UPDATING.md](docs/UPDATING.md) for the step-by-step update guide and [OTA.md](OTA.md) for the contracts, CLI and first-beta gates.
 The app's Caddy fragment is parsed with the complete server configuration during
 the Nix build. Guest diagnostics include Caddy and object-store startup failures.
 Python wheels retain one build-time bytecode variant, and initialization runs
