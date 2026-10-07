@@ -263,6 +263,8 @@ jobs:
           python-version: '3.13'
       - name: Native Windows lifecycle and storage regression tests
         run: |
+          python scripts/test-smoke.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           go test -race ./...

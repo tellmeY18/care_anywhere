@@ -74,6 +74,17 @@ def wait_healthy(c, state, process, path="/status"):
     raise TimeoutError("Guest did not become healthy within the elapsed-time boot limit")
 
 
+def remove_test_state(path):
+    def remove_readonly(function, name, error):
+        # Only clear Windows' read-only bit on files in this invocation's
+        # disposable test state. Other failures must still fail acceptance.
+        if os.name != "nt" or function is not os.unlink or not isinstance(error, PermissionError):
+            raise error
+        os.chmod(name, 0o600)
+        function(name)
+    shutil.rmtree(path, onexc=remove_readonly)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--binary", type=Path, required=True)
@@ -153,9 +164,9 @@ def main():
         print("PASS: clean shutdown", flush=True)
         log.close()  # Windows cannot remove an open log file.
         if a.cleanup:
-            shutil.rmtree(state)
+            remove_test_state(state)
             if a.restore:
-                shutil.rmtree(restored)
+                remove_test_state(restored)
                 archive.unlink()
                 Path(str(archive)+".key").unlink()
     finally:
